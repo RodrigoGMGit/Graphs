@@ -1,0 +1,64 @@
+{
+  /* ─────────────────────────────────────────────
+     1.  Pylance / IntelliSense
+  ───────────────────────────────────────────── */
+  "python.analysis.typeCheckingMode": "basic",          // mild type checking
+  "python.analysis.completeFunctionParens": true,       // auto-add ()
+  "python.analysis.autoFormatStrings": true,            /* When typing a { in a string,
+                                                           automatically prefix the
+                                                           string with an f. */
+
+  /* ─────────────────────────────────────────────
+     2.  Ruff – single-tool workflow (native server)
+  ───────────────────────────────────────────── */
+  // Switch off every linter the Python extension could start
+  "python.linting.enabled": false,
+  "python.linting.flake8Enabled": false,
+  "python.linting.pylintEnabled": false,
+
+  // Ruff extension settings
+  "ruff.enable": true,                // explicit, though “true” is the default
+  "ruff.lineLength": 88,              // keep Black-style wrap width
+
+  /* Tell VS Code to let Ruff handle formatting, fixes and import sorting */
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      // Apply Ruff’s safe fixes (unused vars, imports, etc.) on save
+      "source.fixAll.ruff": "explicit",
+      // Sort imports (isort rules implemented inside Ruff)
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+
+  /* ─────────────────────────────────────────────
+     3.  Testing (pytest)
+  ───────────────────────────────────────────── */
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+
+  /* ─────────────────────────────────────────────
+     4.  Explorer & search exclusions
+  ───────────────────────────────────────────── */
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.venv": true,
+    "**/.mypy_cache": true,
+    "**/.env": false                /* keep .env visible for editing */
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.venv": true
+  },
+
+  /* ─────────────────────────────────────────────
+     5.  Editor visuals & auto-save
+  ───────────────────────────────────────────── */
+  "editor.rulers": [88],              // vertical guide
+  "files.autoSave": "afterDelay"      // auto-save ~1 s after last keystroke
+}

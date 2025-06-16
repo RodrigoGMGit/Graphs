@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Freeze Requirements",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/Scripts/pipreqs.exe",
+      "args": [
+        "--force",
+        "--ignore",
+        ".venv",
+        "--encoding",
+        "utf8",
+        "."
+      ],
+      "presentation": {
+        "reveal": "never"
+      }
+    },
+    {
+      "label": "Install Dependencies",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "args": [
+        "-m",
+        "pip",
+        "install",
+        "-qr",
+        "requirements.txt"
+      ],
+      "dependsOn": "Freeze Requirements"
+    },
+    {
+      "label": "Run App",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "args": [
+        "app.py"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "Install Dependencies"
+    }
+  ]
+}
