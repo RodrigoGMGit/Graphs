@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-graphs.py – Genera 4 gráficos (Calidad, Dedicación, Niveles de Madurez LEP,
-TMD) filtrados por Chapter Leader.  Usa caché Parquet en «<DATA_DIR>/cached_files».
+graphs.py – Genera 4 gráficos (Calidad, Dedicación, Niveles de Madurez LEP
+y Tiempo Medio de Desarrollo) filtrados por Chapter Leader.
 
-• DATA_DIR puede editarse a mano o indicarse por CLI con --root.
+• Los archivos .xlsx se detectan automáticamente por palabra-clave
+  (Calidad, DR, NivelesMadurez, TMD) dentro de DATA_DIR.
+  Un argumento CLI (--calidad, --dedicacion, --madurez, --tiempo) anula
+  la detección automática para ese gráfico.
+
+• DATA_DIR puede editarse a mano o sobreescribirse con --root.
+• La caché Parquet se guarda en <DATA_DIR>/cached_files (se crea si falta).
 """
 
 from __future__ import annotations
@@ -23,21 +29,23 @@ import seaborn as sns
 from matplotlib import cm, colors
 
 # ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
+DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 04"
 CACHE_SUBDIR = "cached_files"
 
-# Estas variables se recalculan si se pasa --root
 FILES_DIR = DATA_DIR
 CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+
+# Palabras-clave -> método
+FILE_KEYWORDS = {
+    "calidad": "CALIDAD",
+    "dedicacion": "DR",
+    "madurez": "NIVELESMADUREZ",
+    "tiempo": "TMD",
+}
 
 # ───────────── CONFIG RESTO ─────────────
 CHAPTER_LEADER = "ANTHONY JAESSON ROJAS MUNARES"
 TMD_THRESHOLD = 13  # días
-
-DEFAULT_CALIDAD = "Calidad__Pases a Producción y Reversiones – BCP TI 2025.xlsx"
-DEFAULT_DEDICACION = "DR__Reporte_detallado_general.xlsx"
-DEFAULT_MADUREZ = "NivelesMadurez__Reporte_NM_25_04_25.xlsx"
-DEFAULT_TIEMPO = "TMD__BD Dashboard OKR T.Desarrollo-02.05.25.xlsx"
 
 sns.set_theme(style="whitegrid", context="notebook")
 
@@ -62,14 +70,18 @@ def _warn(msg: str) -> None:
     print(f"⚠️  {msg}")
 
 
-# ─── Normalización de nombres ─────────────────────────────────────────
+# ─── Normalización genérica ───────────────────────────────────────────
+def _normalize(txt: str) -> str:
+    txt = unicodedata.normalize("NFKD", txt)
+    txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+    return re.sub(r"\s+", "", txt).upper()
+
+
 def normalize_name(txt: str | float) -> str:
     if not isinstance(txt, str):
         return ""
     txt = txt.split("(")[0]
-    txt = unicodedata.normalize("NFKD", txt)
-    txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
-    return re.sub(r"\s+", " ", txt).strip().upper()
+    return _normalize(txt)
 
 
 CL_NORM = normalize_name(CHAPTER_LEADER)
@@ -79,10 +91,24 @@ def norm_series(s: pd.Series) -> pd.Series:
     return s.fillna("").map(normalize_name)
 
 
+# ─── Búsqueda automática de archivos ──────────────────────────────────
+def _find_file_by_keyword(keyword: str) -> str | None:
+    """Busca en FILES_DIR un único .xlsx cuyo nombre contenga keyword (normalizado)."""
+    files = [f for f in os.listdir(FILES_DIR) if f.lower().endswith(".xlsx")]
+    matches = [f for f in files if keyword in _normalize(f)]
+    if len(matches) == 1:
+        return os.path.join(FILES_DIR, matches[0])
+    if len(matches) == 0:
+        _warn(f"No se encontró archivo con «{keyword}» en {FILES_DIR}")
+    else:
+        _warn(f"Hay múltiples archivos con «{keyword}»; corrige antes de continuar")
+    return None
+
+
 # ─── Caché Excel → Parquet ────────────────────────────────────────────
 def _slugify(txt: str) -> str:
-    norm = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode()
-    return re.sub(r"[^\w.\-]+", "_", norm)
+    txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode()
+    return re.sub(r"[^\w.\-]+", "_", txt)
 
 
 def read_any(fp: str, **kw) -> pd.DataFrame:
@@ -94,20 +120,17 @@ def read_any(fp: str, **kw) -> pd.DataFrame:
     if os.path.isfile(cache_path):
         return pd.read_parquet(cache_path)
 
-    if fp.lower().endswith(".parquet"):
-        return pd.read_parquet(fp)
-
     df = pd.read_excel(fp, **kw)
     obj_cols = df.select_dtypes(include="object").columns
     df[obj_cols] = df[obj_cols].astype("string")
-    os.makedirs(CACHE_DIR, exist_ok=True)  # asegura carpeta si ruta cambió por CLI
+    os.makedirs(CACHE_DIR, exist_ok=True)
     df.reset_index(drop=True).to_parquet(cache_path, compression="snappy", index=False)
     return df
 
 
 # ───────────── 1 · CALIDAD ─────────────
 def plot_calidad_pases(file_name: str) -> None:
-    fp = os.path.join(FILES_DIR, file_name)
+    fp = file_name
     if fp.lower().endswith(".xlsx"):
         pases = read_any(fp, sheet_name="Consolidado Pases")
         revs = read_any(fp, sheet_name="Consolidado Reversiones")
@@ -151,7 +174,7 @@ def plot_calidad_pases(file_name: str) -> None:
 
 # ───────────── 2 · DEDICACIÓN ─────────────
 def plot_dedicacion_tm(file_name: str) -> None:
-    df = read_any(os.path.join(FILES_DIR, file_name))
+    df = read_any(file_name)
     df = df[norm_series(df["Nombre CL"]) == CL_NORM]
     if df.empty:
         return _warn("Sin dedicación para CL.")
@@ -178,7 +201,7 @@ def plot_dedicacion_tm(file_name: str) -> None:
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
 def plot_niveles_madurez(file_name: str) -> None:
-    df = read_any(os.path.join(FILES_DIR, file_name))
+    df = read_any(file_name)
     df = df[norm_series(df["Chapter Leader"]) == CL_NORM]
     if df.empty:
         return _warn("Sin registros LEP para CL.")
@@ -239,7 +262,7 @@ def plot_niveles_madurez(file_name: str) -> None:
     plt.show()
 
 
-# ───────────── 4 · TMD (estilo tmd.py) ─────────────
+# ───────────── 4 · TMD ─────────────
 def _find_cl_column(df: pd.DataFrame) -> str | None:
     candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
     for c in df.columns:
@@ -288,7 +311,7 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
 
 
 def plot_tiempo_desarrollo(file_name: str) -> None:
-    df = read_any(os.path.join(FILES_DIR, file_name))
+    df = read_any(file_name)
 
     cl_col = _find_cl_column(df)
     if cl_col is None:
@@ -328,11 +351,17 @@ def plot_tiempo_desarrollo(file_name: str) -> None:
 def parse_args():
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
-    p.add_argument("--calidad", nargs="?", const=DEFAULT_CALIDAD)
-    p.add_argument("--dedicacion", nargs="?", const=DEFAULT_DEDICACION)
-    p.add_argument("--madurez", nargs="?", const=DEFAULT_MADUREZ)
-    p.add_argument("--tiempo", nargs="?", const=DEFAULT_TIEMPO)
+    p.add_argument("--calidad", nargs="?", help="Archivo Calidad .xlsx")
+    p.add_argument("--dedicacion", nargs="?", help="Archivo DR .xlsx")
+    p.add_argument("--madurez", nargs="?", help="Archivo NivelesMadurez .xlsx")
+    p.add_argument("--tiempo", nargs="?", help="Archivo TMD .xlsx")
     return p.parse_args()
+
+
+def _resolve_path(cli_arg: str | None, task_key: str) -> str | None:
+    if cli_arg:
+        return cli_arg if os.path.isabs(cli_arg) else os.path.join(FILES_DIR, cli_arg)
+    return _find_file_by_keyword(FILE_KEYWORDS[task_key])
 
 
 def main() -> None:
@@ -343,22 +372,22 @@ def main() -> None:
         DATA_DIR = a.root
         FILES_DIR = DATA_DIR
         CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
-    os.makedirs(CACHE_DIR, exist_ok=True)  # crea caché (nuevo o default)
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
     tasks = [
-        ("calidad", a.calidad, plot_calidad_pases),
-        ("dedicacion", a.dedicacion, plot_dedicacion_tm),
-        ("madurez", a.madurez, plot_niveles_madurez),
-        ("tiempo", a.tiempo, plot_tiempo_desarrollo),
+        ("calidad", _resolve_path(a.calidad, "calidad"), plot_calidad_pases),
+        ("dedicacion", _resolve_path(a.dedicacion, "dedicacion"), plot_dedicacion_tm),
+        ("madurez", _resolve_path(a.madurez, "madurez"), plot_niveles_madurez),
+        ("tiempo", _resolve_path(a.tiempo, "tiempo"), plot_tiempo_desarrollo),
     ]
 
-    if not any(fname for _, fname, _ in tasks):
-        for k, _, fn in tasks:
-            fn(globals()[f"DEFAULT_{k.upper()}"])
-    else:
-        for _, fname, fn in tasks:
-            if fname:
-                fn(fname)
+    any_run = False
+    for key, path, fn in tasks:
+        if path:
+            any_run = True
+            fn(path)
+    if not any_run:
+        _warn("Ningún gráfico se ejecutó: revisa los archivos o los parámetros CLI.")
 
 
 if __name__ == "__main__":
