@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-graphs.py – Genera 4 gráficos (Calidad, Dedicación, Madurez-LEP, TMD)
-Filtra por nombre completo del Chapter Leader, ignorando acentos y el correo
-entre paréntesis que aparece en `cl_dev`.
-
-• Sin warnings de Pylance / Ruff  • Sin TypeError en Categorical.fillna
+graphs.py – Genera 4 gráficos (Calidad, Dedicación, Niveles de Madurez LEP,
+TMD) filtrados por Chapter Leader, con caché Parquet en «cached_files».
 """
 
 from __future__ import annotations
@@ -26,7 +23,11 @@ from matplotlib import cm, colors
 # ───────────── CONFIG ─────────────
 CHAPTER_LEADER = "ANTHONY JAESSON ROJAS MUNARES"
 FILES_DIR = os.path.join(os.path.dirname(__file__), "files")
-TMD_THRESHOLD = 13
+
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "cached_files")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+TMD_THRESHOLD = 13  # días
 
 DEFAULT_CALIDAD = "Calidad__Pases a Producción y Reversiones – BCP TI 2025.xlsx"
 DEFAULT_DEDICACION = "DR__Reporte_detallado_general.xlsx"
@@ -52,14 +53,11 @@ MONTHS_ES = [
 MONTH_CAT = pd.CategoricalDtype(categories=MONTHS_ES, ordered=True)
 
 
-def _warn(message: str) -> None:
-    """Imprime mensajes informativos estandarizados."""
-    print(f"[INFO] {message}")
+def _warn(msg: str) -> None:
+    print(f"⚠️  {msg}")
 
 
-# ───────────── HELPERS ─────────────
 def normalize_name(txt: str | float) -> str:
-    """Quita acentos, texto entre paréntesis y espacios duplicados; devuelve MAYÚSCULAS."""
     if not isinstance(txt, str):
         return ""
     txt = txt.split("(")[0]
@@ -72,14 +70,32 @@ CL_NORM = normalize_name(CHAPTER_LEADER)
 
 
 def norm_series(s: pd.Series) -> pd.Series:
-    """Normaliza cada celda de la serie para comparación exacta."""
     return s.fillna("").map(normalize_name)
 
 
+# ─── Caché Excel → Parquet ────────────────────────────────────────────
+def _slugify(txt: str) -> str:
+    norm = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode()
+    return re.sub(r"[^\w.\-]+", "_", norm)
+
+
 def read_any(fp: str, **kw) -> pd.DataFrame:
-    return (
-        pd.read_excel(fp, **kw) if fp.lower().endswith(".xlsx") else pd.read_parquet(fp)
-    )
+    sheet = kw.get("sheet_name")
+    base = os.path.splitext(os.path.basename(fp))[0]
+    cache_name = f"{base}__{sheet}.parquet" if sheet else f"{base}.parquet"
+    cache_path = os.path.join(CACHE_DIR, _slugify(cache_name))
+
+    if os.path.isfile(cache_path):
+        return pd.read_parquet(cache_path)
+
+    if fp.lower().endswith(".parquet"):
+        return pd.read_parquet(fp)
+
+    df = pd.read_excel(fp, **kw)
+    obj_cols = df.select_dtypes(include="object").columns
+    df[obj_cols] = df[obj_cols].astype("string")
+    df.reset_index(drop=True).to_parquet(cache_path, compression="snappy", index=False)
+    return df
 
 
 # ───────────── 1 · CALIDAD ─────────────
@@ -89,9 +105,9 @@ def plot_calidad_pases(file_name: str) -> None:
         pases = read_any(fp, sheet_name="Consolidado Pases")
         revs = read_any(fp, sheet_name="Consolidado Reversiones")
     else:
-        df = read_any(fp)
-        pases = df[df["Tipo"] == "Pase a Producción"].copy()
-        revs = df[df["Tipo"] == "Reversión"].copy()
+        dfall = read_any(fp)
+        pases = dfall[dfall["Tipo"] == "Pase a Producción"].copy()
+        revs = dfall[dfall["Tipo"] == "Reversión"].copy()
 
     pases = pases[norm_series(pases["Chapter leader"]) == CL_NORM]
     revs = revs[norm_series(revs["Chapter leader"]) == CL_NORM]
@@ -110,8 +126,6 @@ def plot_calidad_pases(file_name: str) -> None:
     full["passes"] = full["passes"].fillna(0).astype(int)
     full["revs"] = full["revs"].fillna(0).astype(int)
     full = full[(full["passes"] + full["revs"]) > 0]
-    if full.empty:
-        return _warn("Conteos vacíos tras filtrado.")
 
     for sq in sorted(full["Squad"].unique()):
         d = full[full["Squad"] == sq].sort_values("Mes")
@@ -121,7 +135,7 @@ def plot_calidad_pases(file_name: str) -> None:
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
         plt.title(sq)
-        plt.ylabel("Eventos")
+        plt.ylabel("Pases / Reversiones")
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
@@ -144,25 +158,25 @@ def plot_dedicacion_tm(file_name: str) -> None:
         width = rect.get_width()  # type: ignore[attr-defined]
         plt.text(
             width + 0.03,
-            rect.get_y() + rect.get_height() / 2,  # type: ignore[attr-defined]
-            f"{width:.2f}",
+            rect.get_y() + rect.get_height() / 2,
+            f"{width:.1f} h",
             va="center",
+            fontsize=9,
         )
-    plt.xlabel("Promedio de dedicación")
-    plt.title("Dedicación promedio por TM")
+    plt.xlabel("Promedio de Dedicación (horas)")
+    plt.title("Dedicación promedio por miembro de equipo")
     plt.tight_layout()
     plt.show()
 
 
-# ───────────── 3 · MADUREZ (versión original) ─────────────
+# ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
 def plot_niveles_madurez(file_name: str) -> None:
     df = read_any(os.path.join(FILES_DIR, file_name))
-    # ➜ El original usaba contains() (mayúsculas); mantenemos coincidencia exacta
     df = df[norm_series(df["Chapter Leader"]) == CL_NORM]
     if df.empty:
         return _warn("Sin registros LEP para CL.")
 
-    lep_cols = [c for c in df.columns if str(c).startswith("LEP")]
+    lep_cols = [c for c in df.columns if str(c).startswith("LEP_")]
     sq_candidates = [
         c
         for c in df.columns
@@ -196,7 +210,7 @@ def plot_niveles_madurez(file_name: str) -> None:
         dodge=True,
     )
 
-    ax.set_title("Niveles de Madurez – Promedio LEP por Squad (Horizontal)")
+    ax.set_title("Niveles de Madurez – Promedio LEP por Squad")
     ax.set_ylabel("Squad")
     ax.set_xlabel("Puntuación promedio")
     ax.grid(True, axis="x")
@@ -218,26 +232,74 @@ def plot_niveles_madurez(file_name: str) -> None:
     plt.show()
 
 
-# ───────────── 4 · TMD ─────────────
-def plot_tiempo_desarrollo(file_name: str) -> None:
-    fp = os.path.join(FILES_DIR, file_name)
-    df = (
-        read_any(fp, sheet_name="Reporte Tiempo Desarrollo")
-        if fp.lower().endswith(".xlsx")
-        else read_any(fp)
-    )
+# ───────────── 4 · TMD (estilo script tmd.py) ─────────────
+def _find_cl_column(df: pd.DataFrame) -> str | None:
+    candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
+    for c in df.columns:
+        if normalize_name(c) in map(normalize_name, candidates):
+            return c
+    return None
 
-    df = df[norm_series(df["cl_dev"]) == CL_NORM]
+
+def _plot_tmd(series: pd.Series, title: str) -> None:
+    """Barra horizontal con gradiente, línea de umbral y colorbar."""
+    vals = series.values
+    labels = series.index.tolist()
+    max_val = np.nanmax(vals)
+
+    cmap = cm.get_cmap("RdYlGn_r")
+    norm = colors.Normalize(vmin=TMD_THRESHOLD, vmax=max_val)
+    bar_colors = [cmap(norm(v)) for v in vals]
+
+    plt.figure(figsize=(14, 6))
+    ax = sns.barplot(y=labels, x=vals, palette=bar_colors)
+
+    ax.set_title(title)
+    ax.set_xlabel("Promedio de días")
+    ax.set_ylabel("")
+
+    # Ticks enteros
+    ax.set_xticks(np.arange(0, int(np.ceil(max_val)) + 1, 1))
+    ax.set_xlim(0, np.ceil(max_val) + 1)
+
+    # Etiquetas numéricas sobre las barras
+    for p, v in zip(ax.patches, vals):
+        ax.annotate(
+            f"{v:.1f}",
+            (v, p.get_y() + p.get_height() / 2),
+            ha="left",
+            va="center",
+            xytext=(3, 0),
+            textcoords="offset points",
+            fontsize=9,
+        )
+
+    # Línea de umbral
+    ax.axvline(TMD_THRESHOLD, color="black", linestyle="--", linewidth=1)
+
+    # Barra de color
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, orientation="vertical", label="Días (rojo = peor)")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_tiempo_desarrollo(file_name: str) -> None:
+    df = read_any(os.path.join(FILES_DIR, file_name))
+
+    cl_col = _find_cl_column(df)
+    if cl_col is None:
+        return _warn("No se encontró columna de Chapter Leader en TMD.")
+
+    df = df[norm_series(df[cl_col]) == CL_NORM]
     if df.empty:
-        return _warn("Sin TMD para CL.")
+        return _warn("Sin datos de TMD para CL.")
+
+    # Asegurar numérico
     df["Tiempo Desarrollo"] = pd.to_numeric(df["Tiempo Desarrollo"], errors="coerce")
 
-    tribu_avg = (
-        df.groupby("Descripción tribu")["Tiempo Desarrollo"]
-        .mean()
-        .dropna()
-        .sort_values(ascending=False)
-    )
     squad_avg = (
         df.groupby("Descripción squad")["Tiempo Desarrollo"]
         .mean()
@@ -245,56 +307,26 @@ def plot_tiempo_desarrollo(file_name: str) -> None:
         .sort_values(ascending=False)
     )
 
-    sns.set_theme(style="whitegrid", context="talk")
+    tribe_avg = (
+        df.groupby("Descripción tribu")["Tiempo Desarrollo"]
+        .mean()
+        .dropna()
+        .sort_values(ascending=False)
+    )
 
-    def _plot(series: pd.Series, lvl: str) -> None:
-        if series.empty:
-            return
-        vals, labs, vmax = series.values, series.index.tolist(), series.max()
-        norm = colors.Normalize(vmin=TMD_THRESHOLD, vmax=vmax)
-        palette = [cm.get_cmap("RdYlGn_r")(norm(v)) for v in vals]
-
-        plt.figure(figsize=(14, 6))
-        ax = sns.barplot(y=labs, x=vals, palette=palette, edgecolor="black")
-        ax.set_title(f"Tiempo de Desarrollo promedio por {lvl}")
-        ax.set_xlabel("Promedio de días")
-        ax.set_ylabel("")
-        ax.set_xlim(0, np.ceil(vmax) + 1)
-        ax.set_xticks(range(0, int(np.ceil(vmax)) + 1))
-
-        for p, v in zip(ax.patches, vals):
-            rect = cast(mpatches.Rectangle, p)
-            ax.text(
-                v + 0.3,
-                rect.get_y() + rect.get_height() / 2,  # type: ignore[attr-defined]
-                f"{v:.1f}",
-                va="center",
-                fontsize=8,
-            )
-
-        ax.axvline(
-            TMD_THRESHOLD,
-            color="black",
-            ls="--",
-            linewidth=1,
-            label=f"Umbral {TMD_THRESHOLD} días",
-        )
-        sm = cm.ScalarMappable(norm=norm, cmap="RdYlGn_r")
-        sm.set_array([])
-        plt.colorbar(sm, ax=ax, label="Días")
-        ax.legend(loc="lower right")
-        plt.tight_layout()
-        plt.show()
-
-    _plot(tribu_avg, "Tribu")
-    _plot(squad_avg, "Squad")
+    _plot_tmd(
+        tribe_avg,
+        f"Tiempo de Desarrollo Promedio por Tribu (umbral {TMD_THRESHOLD} días)",
+    )
+    _plot_tmd(
+        squad_avg,
+        f"Tiempo de Desarrollo Promedio por Squad (umbral {TMD_THRESHOLD} días)",
+    )
 
 
 # ───────────── CLI ─────────────
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Gráficos filtrados por nombre completo del CL."
-    )
+    p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--calidad", nargs="?", const=DEFAULT_CALIDAD)
     p.add_argument("--dedicacion", nargs="?", const=DEFAULT_DEDICACION)
     p.add_argument("--madurez", nargs="?", const=DEFAULT_MADUREZ)
@@ -311,7 +343,7 @@ def main() -> None:
         ("tiempo", a.tiempo, plot_tiempo_desarrollo),
     ]
 
-    if not any(fname for _, fname, _ in tasks):  # sin flags → todo default
+    if not any(fname for _, fname, _ in tasks):
         for k, _, fn in tasks:
             fn(globals()[f"DEFAULT_{k.upper()}"])
     else:
