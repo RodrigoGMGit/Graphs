@@ -1,16 +1,8 @@
-"""
-GUI para generar presentaciones de Chapter Leaders con DearPyGui.
-
-Ejecuta:
-    python presentation_gui.py
-
-Requisitos (ya instalados en tu venv):
-    pip install dearpygui python-pptx matplotlib numpy pandas seaborn openpyxl
-
-Genera la presentación con `generate_presentation.py`, copia el archivo *.pptx* a la
-carpeta correspondiente del mes seleccionado, por ejemplo:
-    C:/.../ChapterSyncFiles/S00001/2025 04/outputs/
-"""
+#!/usr/bin/env python3
+# presentation_gui.py – v2.4.5  (18 Jun 2025)
+# ---------------------------------------------------------------------------
+# Interfaz DearPyGui para generar presentaciones de Chapter Leaders (ChapterSync)
+# ---------------------------------------------------------------------------
 
 from __future__ import annotations
 
@@ -18,6 +10,8 @@ import os
 import re
 import runpy
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import List
 
@@ -25,160 +19,262 @@ import dearpygui.dearpygui as dpg
 
 import graphs
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Ajustes de estilo
-# ────────────────────────────────────────────────────────────────────────────────
+# ────────── Configuración ──────────
+ROOT_DIR = Path(__file__).resolve().parent
+SYNC_ROOT = (ROOT_DIR.parent / "ChapterSyncFiles" / "S00001").resolve()
+if not SYNC_ROOT.exists():
+    try:
+        SYNC_ROOT = Path(graphs.DATA_DIR).resolve().parents[1]
+    except Exception:
+        pass
+
+PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
+DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name  # ‘2025 05’
+
+WINDOW_W, WINDOW_H = 560, 470
+FONT_SIZE, HEADER_FONT_SIZE = 17, 24
+
+COLOR_BG = (30, 35, 45, 255)
+COLOR_HEADER = (52, 152, 219, 255)
+COLOR_BTN = (41, 128, 185, 255)
+COLOR_BTN_HOV = (52, 152, 219, 255)
+COLOR_ERR = (231, 76, 60, 255)
+
+# Tags
+TAG_INPUT_CL, TAG_CHK_DEFAULT, TAG_COMBO_MONTH = (
+    "##input_cl",
+    "##chk_default",
+    "##combo_month",
+)
+TAG_BTN_GENERAR, TAG_BTN_OPEN_FOLDER, TAG_BTN_OPEN_PPTX = (
+    "##btn_generar",
+    "##btn_open_folder",
+    "##btn_open_pptx",
+)
+TAG_LBL_STATUS, TAG_SPINNER = "##lbl_status", "##spinner"
 
 
-def _register_default_font() -> None:
-    """Asegura una fuente predeterminada legible en todas las versiones."""
-
-    with dpg.font_registry():
-        if hasattr(dpg, "add_font_default"):
-            font = dpg.add_font_default()
-        else:
-            ttf = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "arial.ttf"
-            font = dpg.add_font(str(ttf), 17) if ttf.exists() else None
-
-    if font is not None:
-        dpg.bind_font(font)
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-# Utilidades
-# ────────────────────────────────────────────────────────────────────────────────
-
-ROOT_DIR = Path(graphs.DATA_DIR).parents[0]  # .../S00001
-DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name  # "2025 05"
-PRESENTATION_SCRIPT = Path(__file__).with_name("generate_presentation.py")
-OUTPUTS_SRC_DIR = Path(__file__).with_name("outputs")  # donde genera por defecto
-
-re_month = re.compile(r"^\d{4} \d{2}$")  # ej. "2025 05"
-
-
-def list_month_dirs() -> list[str]:
-    """Devuelve subdirectorios con patrón "YYYY MM" ordenados desc."""
+# ────────── Utilidades ──────────
+def listar_meses() -> List[str]:
+    if not SYNC_ROOT.exists():
+        return []
+    pat = re.compile(r"^20\d{2} [01]\d$")
     return sorted(
-        [p.name for p in ROOT_DIR.iterdir() if p.is_dir() and re_month.match(p.name)],
-        reverse=True,
+        p.name for p in SYNC_ROOT.iterdir() if p.is_dir() and pat.match(p.name)
     )
 
 
-def _copiar_presentaciones(origen: Path, destino: Path) -> List[Path]:
-    """Copia todos los *.pptx* de *origen* a *destino* y devuelve las rutas nuevas."""
-    if not origen.is_dir():
-        return []
+def abrir_explorador(r: Path):
+    if not r.exists():
+        return
+    if sys.platform.startswith("win"):
+        os.startfile(str(r))  # type: ignore[attr-defined]
+    elif sys.platform.startswith("darwin"):
+        subprocess.Popen(["open", str(r)])
+    else:
+        subprocess.Popen(["xdg-open", str(r)])
 
-    destino.mkdir(parents=True, exist_ok=True)
-    copiados: List[Path] = []
-    for ppt in origen.glob("*.pptx"):
-        dst = destino / ppt.name
+
+def registrar_fuente():
+    with dpg.font_registry():
+        path = None
+        if os.name == "nt":
+            cand = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts/arial.ttf"
+            if cand.exists():
+                path = str(cand)
+        if path:
+            normal = dpg.add_font(path, FONT_SIZE)
+            header = dpg.add_font(path, HEADER_FONT_SIZE)
+            dpg.bind_font(normal)
+            return header
         try:
-            shutil.copy2(ppt, dst)
-            copiados.append(dst)
-        except Exception:
-            # Si no se puede copiar un archivo concreto, continuamos con los demás
-            continue
-    return copiados
+            normal = header = dpg.add_font_default()  # type: ignore[attr-defined]
+            dpg.bind_font(normal)
+            return header
+        except AttributeError:
+            return None
 
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Callbacks
-# ────────────────────────────────────────────────────────────────────────────────
+def theme_global():
+    with dpg.theme() as t:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLOR_BG)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 12)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 5)
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, COLOR_BTN)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLOR_BTN_HOV)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
+    dpg.bind_theme(t)
 
 
-def generate_presentation_callback(sender, app_data, user_data):  # noqa: D401
-    """Recolecta entradas de la GUI y lanza el script de presentación."""
+def set_error(msg: str):
+    dpg.configure_item(TAG_LBL_STATUS, default_value=msg, color=COLOR_ERR)
 
-    chapter_leader = dpg.get_value("##input_cl").strip()
-    if not chapter_leader:
-        dpg.configure_item(
-            "##lbl_status", default_value="❌ Ingresa el nombre del Chapter Leader."
-        )
+
+# ────────── Callbacks ──────────
+def abrir_carpeta_cb(s, a, u):
+    abrir_explorador(Path(u))
+
+
+def abrir_pptx_cb(s, a, u):
+    abrir_explorador(Path(u))
+
+
+def toggle_combo_cb(s, a, u):
+    dpg.configure_item(TAG_COMBO_MONTH, show=not a)
+
+
+def generar_cb(s=None, a=None, u=None):
+    cl = dpg.get_value(TAG_INPUT_CL).strip()
+    useD = dpg.get_value(TAG_CHK_DEFAULT)
+    mes = DEFAULT_MONTH_DIR if useD else dpg.get_value(TAG_COMBO_MONTH)
+
+    # Reset UI
+    dpg.configure_item(TAG_BTN_OPEN_FOLDER, show=False)
+    dpg.configure_item(TAG_BTN_OPEN_PPTX, show=False)
+    dpg.configure_item(TAG_LBL_STATUS, default_value="")
+    dpg.configure_item(TAG_SPINNER, show=True)
+
+    # Validaciones
+    if not SYNC_ROOT.exists():
+        set_error(f"⚠ Carpeta raíz {SYNC_ROOT} no encontrada")
+        dpg.configure_item(TAG_SPINNER, show=False)
+        return
+    if not cl:
+        set_error("⚠ Ingresa el nombre del Chapter Leader")
+        dpg.configure_item(TAG_SPINNER, show=False)
+        return
+    if not mes:
+        set_error("⚠ Selecciona un mes válido")
+        dpg.configure_item(TAG_SPINNER, show=False)
         return
 
-    use_default = dpg.get_value("##chk_default")
-    month_dir = DEFAULT_MONTH_DIR if use_default else dpg.get_value("##combo_month")
-
-    # ─── Actualizar variables globales en graphs ───────────────────────
-    graphs.CHAPTER_LEADER = chapter_leader
-    graphs.CL_NORM = graphs.normalize_name(chapter_leader)
-
-    graphs.DATA_DIR = str(ROOT_DIR / month_dir)
+    graphs.CHAPTER_LEADER = cl
+    graphs.CL_NORM = graphs.normalize_name(cl)
+    graphs.DATA_DIR = str(SYNC_ROOT / mes)
     graphs.FILES_DIR = graphs.DATA_DIR
     graphs.CACHE_DIR = os.path.join(graphs.FILES_DIR, graphs.CACHE_SUBDIR)
 
-    # ─── Ejecutar generación ──────────────────────────────────────────
     try:
         runpy.run_path(str(PRESENTATION_SCRIPT))
-    except Exception as exc:  # pragma: no cover – uso interactivo
-        dpg.configure_item(
-            "##lbl_status", default_value=f"❌ Error al generar presentación: {exc}"
-        )
+    except Exception as exc:
+        set_error(f"❌ Error: {exc}")
+        dpg.configure_item(TAG_SPINNER, show=False)
         return
 
-    # ─── Copiar *.pptx* a la carpeta del mes ──────────────────────────
-    destino_out = Path(graphs.DATA_DIR) / "outputs"
-    copiados = _copiar_presentaciones(OUTPUTS_SRC_DIR, destino_out)
+    src, dst = ROOT_DIR / "outputs", SYNC_ROOT / mes / "outputs"
+    dst.mkdir(exist_ok=True)
+    pptxs = []
+    for p in src.glob("*.pptx"):
+        dest = dst / p.name
+        shutil.copy2(p, dest)
+        pptxs.append(dest)
+    if not pptxs:
+        set_error("⚠ No se encontró ningún .pptx para copiar")
+        dpg.configure_item(TAG_SPINNER, show=False)
+        return
+    pptxs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    ultimo = pptxs[0]
 
-    if copiados:
-        msg = f"✅ Presentación copiada a: {destino_out}"
-    else:
-        msg = "⚠️  No se encontró ningún .pptx para copiar. Verifica la generación."
-
-    dpg.configure_item("##lbl_status", default_value=msg)
+    # Éxito
+    dpg.configure_item(TAG_SPINNER, show=False)
+    dpg.configure_item(TAG_BTN_OPEN_FOLDER, user_data=str(dst), show=True)
+    dpg.configure_item(TAG_BTN_OPEN_PPTX, user_data=str(ultimo), show=True)
 
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Construcción de la interfaz
-# ────────────────────────────────────────────────────────────────────────────────
+# ────────── UI principal ──────────
+def build_ui():
+    header = registrar_fuente()
+    theme_global()
 
-
-def build_gui() -> None:
-    _register_default_font()
-
-    with dpg.window(label="Generador de Presentaciones", width=520, height=280):
-        dpg.add_text("Nombre del Chapter Leader:")
-        dpg.add_input_text(tag="##input_cl", width=320)
-
+    with dpg.window(
+        label="Generar Presentación",
+        width=WINDOW_W,
+        height=WINDOW_H,
+        no_resize=True,
+        no_collapse=True,
+    ):
+        dpg.add_spacer(height=6)
+        h = dpg.add_text("ChapterSync", color=COLOR_HEADER)
+        if header:
+            dpg.bind_item_font(h, header)
+        dpg.add_text("Generación de PPT")
         dpg.add_separator()
 
+        dpg.add_text("Nombre del Chapter Leader:")
+        dpg.add_input_text(
+            tag=TAG_INPUT_CL,
+            default_value=graphs.CHAPTER_LEADER,
+            on_enter=True,
+            width=-1,
+        )
+
         dpg.add_checkbox(
-            label=f"Usar carpeta por defecto ({DEFAULT_MONTH_DIR})",
-            tag="##chk_default",
+            label="Usar carpeta por defecto",
             default_value=True,
-            callback=lambda s, a: dpg.configure_item(
-                "##combo_month", show=not dpg.get_value("##chk_default")
-            ),
+            tag=TAG_CHK_DEFAULT,
+            callback=toggle_combo_cb,
         )
-
+        meses = listar_meses()
         dpg.add_combo(
-            list_month_dirs(),
-            tag="##combo_month",
-            default_value=DEFAULT_MONTH_DIR,
+            meses,
+            label="Selecciona mes",
+            default_value=DEFAULT_MONTH_DIR if DEFAULT_MONTH_DIR in meses else "",
+            tag=TAG_COMBO_MONTH,
+            width=-1,
             show=False,
-            width=160,
-            label="Selecciona el mes:",
         )
 
-        dpg.add_spacing(count=2)
+        dpg.add_spacer(height=8)
         dpg.add_button(
             label="Generar presentación",
-            callback=generate_presentation_callback,
-            width=220,
+            tag=TAG_BTN_GENERAR,
+            callback=generar_cb,
+            width=-1,
         )
-        dpg.add_spacing(count=1)
-        dpg.add_text(tag="##lbl_status", default_value="")
+
+        # Botones abrir (hidden)
+        dpg.add_button(
+            label="Abrir carpeta",
+            tag=TAG_BTN_OPEN_FOLDER,
+            show=False,
+            callback=abrir_carpeta_cb,
+        )
+        dpg.add_button(
+            label="Abrir presentación",
+            tag=TAG_BTN_OPEN_PPTX,
+            show=False,
+            callback=abrir_pptx_cb,
+        )
+
+        # Spinner centrado
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=(WINDOW_W - 22) // 2)  # 22 ≈ diámetro del spinner
+            try:
+                dpg.add_loading_indicator(radius=11, tag=TAG_SPINNER, show=False)
+            except AttributeError:
+                dpg.add_progress_bar(
+                    width=22, default_value=0.5, overlay="", tag=TAG_SPINNER, show=False
+                )
+
+        dpg.add_text("", tag=TAG_LBL_STATUS)
+
+    with dpg.handler_registry():
+        dpg.add_key_press_handler(
+            dpg.mvKey_Escape, callback=lambda *_: dpg.stop_dearpygui()
+        )
+        dpg.add_key_press_handler(dpg.mvKey_Return, callback=generar_cb)
 
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Main
-# ────────────────────────────────────────────────────────────────────────────────
-
+# ────────── main ──────────
 if __name__ == "__main__":
     dpg.create_context()
-    dpg.create_viewport(title="Chapter Presentation Builder", width=540, height=320)
-    build_gui()
+    build_ui()
+    dpg.create_viewport(
+        title="ChapterSync – Generador de PPT", width=WINDOW_W, height=WINDOW_H
+    )
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.start_dearpygui()
