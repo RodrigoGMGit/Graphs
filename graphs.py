@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-graphs.py – Genera 4 gráficos (Calidad, Dedicación, Niveles de Madurez LEP
-y Tiempo Medio de Desarrollo) filtrados por Chapter Leader.
+graphs.py – Genera gráficas de:
+• Calidad  (0-N gráficos)
+• Dedicación
+• Niveles de Madurez LEP
+• TMD (2 gráficos)
 
-• Los archivos .xlsx se detectan automáticamente por palabra-clave
-  (Calidad, DR, NivelesMadurez, TMD) dentro de DATA_DIR.
-  Un argumento CLI (--calidad, --dedicacion, --madurez, --tiempo) anula
-  la detección automática para ese gráfico.
-
-• DATA_DIR puede editarse a mano o sobreescribirse con --root.
-• La caché Parquet se guarda en <DATA_DIR>/cached_files (se crea si falta).
+Además:
+• Busca automáticamente los .xlsx en DATA_DIR por palabra-clave.
+• Usa caché Parquet en <DATA_DIR>/cached_files.
+• Exporte _resolve_path() para que otros scripts (p.ej. generate_presentation.py)
+  obtengan la ruta del archivo adecuado sin correr parse_args.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import seaborn as sns
 from matplotlib import cm, colors
 
 # ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 04"
+DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
 CACHE_SUBDIR = "cached_files"
 
 FILES_DIR = DATA_DIR
@@ -105,6 +106,13 @@ def _find_file_by_keyword(keyword: str) -> str | None:
     return None
 
 
+def _resolve_path(cli_arg: str | None, task_key: str) -> str | None:
+    """Devuelve ruta absoluta al .xlsx para el método indicado."""
+    if cli_arg:
+        return cli_arg if os.path.isabs(cli_arg) else os.path.join(FILES_DIR, cli_arg)
+    return _find_file_by_keyword(FILE_KEYWORDS[task_key])
+
+
 # ─── Caché Excel → Parquet ────────────────────────────────────────────
 def _slugify(txt: str) -> str:
     txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode()
@@ -129,12 +137,12 @@ def read_any(fp: str, **kw) -> pd.DataFrame:
 
 
 # ───────────── 1 · CALIDAD ─────────────
-def plot_calidad_pases(file_name: str) -> None:
-    fp = file_name
+def plot_calidad_pases(file_path: str) -> None:
+    fp = file_path
     if fp.lower().endswith(".xlsx"):
         pases = read_any(fp, sheet_name="Consolidado Pases")
         revs = read_any(fp, sheet_name="Consolidado Reversiones")
-    else:
+    else:  # parquet unificado
         dfall = read_any(fp)
         pases = dfall[dfall["Tipo"] == "Pase a Producción"].copy()
         revs = dfall[dfall["Tipo"] == "Reversión"].copy()
@@ -173,8 +181,8 @@ def plot_calidad_pases(file_name: str) -> None:
 
 
 # ───────────── 2 · DEDICACIÓN ─────────────
-def plot_dedicacion_tm(file_name: str) -> None:
-    df = read_any(file_name)
+def plot_dedicacion_tm(file_path: str) -> None:
+    df = read_any(file_path)
     df = df[norm_series(df["Nombre CL"]) == CL_NORM]
     if df.empty:
         return _warn("Sin dedicación para CL.")
@@ -200,8 +208,8 @@ def plot_dedicacion_tm(file_name: str) -> None:
 
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
-def plot_niveles_madurez(file_name: str) -> None:
-    df = read_any(file_name)
+def plot_niveles_madurez(file_path: str) -> None:
+    df = read_any(file_path)
     df = df[norm_series(df["Chapter Leader"]) == CL_NORM]
     if df.empty:
         return _warn("Sin registros LEP para CL.")
@@ -310,8 +318,8 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     plt.show()
 
 
-def plot_tiempo_desarrollo(file_name: str) -> None:
-    df = read_any(file_name)
+def plot_tiempo_desarrollo(file_path: str) -> None:
+    df = read_any(file_path)
 
     cl_col = _find_cl_column(df)
     if cl_col is None:
@@ -347,7 +355,7 @@ def plot_tiempo_desarrollo(file_name: str) -> None:
     )
 
 
-# ───────────── CLI ─────────────
+# ───────────── CLI (opcional) ─────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
@@ -356,12 +364,6 @@ def parse_args():
     p.add_argument("--madurez", nargs="?", help="Archivo NivelesMadurez .xlsx")
     p.add_argument("--tiempo", nargs="?", help="Archivo TMD .xlsx")
     return p.parse_args()
-
-
-def _resolve_path(cli_arg: str | None, task_key: str) -> str | None:
-    if cli_arg:
-        return cli_arg if os.path.isabs(cli_arg) else os.path.join(FILES_DIR, cli_arg)
-    return _find_file_by_keyword(FILE_KEYWORDS[task_key])
 
 
 def main() -> None:
@@ -382,7 +384,7 @@ def main() -> None:
     ]
 
     any_run = False
-    for key, path, fn in tasks:
+    for _, path, fn in tasks:
         if path:
             any_run = True
             fn(path)
