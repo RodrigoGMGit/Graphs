@@ -173,7 +173,7 @@ def plot_calidad_pases(file_path: str) -> None:
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
         plt.title(sq)
-        plt.ylabel("Eventos")
+        plt.ylabel("No. Pases / Reversiones")
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
