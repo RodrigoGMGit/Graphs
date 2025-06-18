@@ -158,7 +158,7 @@ def plot_dedicacion_tm(file_name: str) -> None:
         width = rect.get_width()  # type: ignore[attr-defined]
         plt.text(
             width + 0.03,
-            rect.get_y() + rect.get_height() / 2,
+            rect.get_y() + rect.get_height() / 2,  # type: ignore[attr-defined]
             f"{width:.1f} h",
             va="center",
             fontsize=9,
@@ -232,7 +232,7 @@ def plot_niveles_madurez(file_name: str) -> None:
     plt.show()
 
 
-# ───────────── 4 · TMD (estilo script tmd.py) ─────────────
+# ───────────── 4 · TMD ─────────────
 def _find_cl_column(df: pd.DataFrame) -> str | None:
     candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
     for c in df.columns:
@@ -242,8 +242,9 @@ def _find_cl_column(df: pd.DataFrame) -> str | None:
 
 
 def _plot_tmd(series: pd.Series, title: str) -> None:
-    """Barra horizontal con gradiente, línea de umbral y colorbar."""
-    vals = series.values
+    """Barra horizontal con gradiente, línea de umbral y colorbar (estilo tmd.py)."""
+    # —— conversión explícita a ndarray[float] para evitar tipado de Pylance ——
+    vals: np.ndarray = series.astype(float).to_numpy()
     labels = series.index.tolist()
     max_val = np.nanmax(vals)
 
@@ -264,9 +265,9 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
 
     # Etiquetas numéricas sobre las barras
     for p, v in zip(ax.patches, vals):
-        ax.annotate(
+        ax.annotate(  # type: ignore[attr-defined]
             f"{v:.1f}",
-            (v, p.get_y() + p.get_height() / 2),
+            (v, p.get_y() + p.get_height() / 2),  # type: ignore[attr-defined]
             ha="left",
             va="center",
             xytext=(3, 0),
