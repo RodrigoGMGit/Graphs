@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 graphs.py – Genera 4 gráficos (Calidad, Dedicación, Niveles de Madurez LEP,
-TMD) filtrados por Chapter Leader, con caché Parquet en «cached_files».
+TMD) filtrados por Chapter Leader.  Usa caché Parquet en «<DATA_DIR>/cached_files».
+
+• DATA_DIR puede editarse a mano o indicarse por CLI con --root.
 """
 
 from __future__ import annotations
@@ -20,13 +22,16 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import cm, colors
 
-# ───────────── CONFIG ─────────────
+# ───────────── RUTAS BASE (editable) ─────────────
+DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
+CACHE_SUBDIR = "cached_files"
+
+# Estas variables se recalculan si se pasa --root
+FILES_DIR = DATA_DIR
+CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+
+# ───────────── CONFIG RESTO ─────────────
 CHAPTER_LEADER = "ANTHONY JAESSON ROJAS MUNARES"
-FILES_DIR = os.path.join(os.path.dirname(__file__), "files")
-
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "cached_files")
-os.makedirs(CACHE_DIR, exist_ok=True)
-
 TMD_THRESHOLD = 13  # días
 
 DEFAULT_CALIDAD = "Calidad__Pases a Producción y Reversiones – BCP TI 2025.xlsx"
@@ -57,6 +62,7 @@ def _warn(msg: str) -> None:
     print(f"⚠️  {msg}")
 
 
+# ─── Normalización de nombres ─────────────────────────────────────────
 def normalize_name(txt: str | float) -> str:
     if not isinstance(txt, str):
         return ""
@@ -94,6 +100,7 @@ def read_any(fp: str, **kw) -> pd.DataFrame:
     df = pd.read_excel(fp, **kw)
     obj_cols = df.select_dtypes(include="object").columns
     df[obj_cols] = df[obj_cols].astype("string")
+    os.makedirs(CACHE_DIR, exist_ok=True)  # asegura carpeta si ruta cambió por CLI
     df.reset_index(drop=True).to_parquet(cache_path, compression="snappy", index=False)
     return df
 
@@ -135,7 +142,7 @@ def plot_calidad_pases(file_name: str) -> None:
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
         plt.title(sq)
-        plt.ylabel("Pases / Reversiones")
+        plt.ylabel("Eventos")
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
@@ -232,7 +239,7 @@ def plot_niveles_madurez(file_name: str) -> None:
     plt.show()
 
 
-# ───────────── 4 · TMD ─────────────
+# ───────────── 4 · TMD (estilo tmd.py) ─────────────
 def _find_cl_column(df: pd.DataFrame) -> str | None:
     candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
     for c in df.columns:
@@ -242,8 +249,6 @@ def _find_cl_column(df: pd.DataFrame) -> str | None:
 
 
 def _plot_tmd(series: pd.Series, title: str) -> None:
-    """Barra horizontal con gradiente, línea de umbral y colorbar (estilo tmd.py)."""
-    # —— conversión explícita a ndarray[float] para evitar tipado de Pylance ——
     vals: np.ndarray = series.astype(float).to_numpy()
     labels = series.index.tolist()
     max_val = np.nanmax(vals)
@@ -259,11 +264,9 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     ax.set_xlabel("Promedio de días")
     ax.set_ylabel("")
 
-    # Ticks enteros
     ax.set_xticks(np.arange(0, int(np.ceil(max_val)) + 1, 1))
     ax.set_xlim(0, np.ceil(max_val) + 1)
 
-    # Etiquetas numéricas sobre las barras
     for p, v in zip(ax.patches, vals):
         ax.annotate(  # type: ignore[attr-defined]
             f"{v:.1f}",
@@ -275,14 +278,11 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
             fontsize=9,
         )
 
-    # Línea de umbral
     ax.axvline(TMD_THRESHOLD, color="black", linestyle="--", linewidth=1)
 
-    # Barra de color
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     plt.colorbar(sm, ax=ax, orientation="vertical", label="Días (rojo = peor)")
-
     plt.tight_layout()
     plt.show()
 
@@ -298,7 +298,6 @@ def plot_tiempo_desarrollo(file_name: str) -> None:
     if df.empty:
         return _warn("Sin datos de TMD para CL.")
 
-    # Asegurar numérico
     df["Tiempo Desarrollo"] = pd.to_numeric(df["Tiempo Desarrollo"], errors="coerce")
 
     squad_avg = (
@@ -328,6 +327,7 @@ def plot_tiempo_desarrollo(file_name: str) -> None:
 # ───────────── CLI ─────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
+    p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
     p.add_argument("--calidad", nargs="?", const=DEFAULT_CALIDAD)
     p.add_argument("--dedicacion", nargs="?", const=DEFAULT_DEDICACION)
     p.add_argument("--madurez", nargs="?", const=DEFAULT_MADUREZ)
@@ -336,7 +336,15 @@ def parse_args():
 
 
 def main() -> None:
+    global DATA_DIR, FILES_DIR, CACHE_DIR
+
     a = parse_args()
+    if a.root:
+        DATA_DIR = a.root
+        FILES_DIR = DATA_DIR
+        CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+    os.makedirs(CACHE_DIR, exist_ok=True)  # crea caché (nuevo o default)
+
     tasks = [
         ("calidad", a.calidad, plot_calidad_pases),
         ("dedicacion", a.dedicacion, plot_dedicacion_tm),
