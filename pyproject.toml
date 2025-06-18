@@ -1,0 +1,42 @@
+[project]
+name = "reportgen"
+version = "0.1.0"
+description = "Automated graph & PowerPoint generator"
+requires-python = ">=3.10"
+
+[project.dependencies]
+pydantic = "^2.7"            # v2 o v1, nuestro config.py soporta ambas
+pydantic-settings = "^2.2"   # opcional si usas v2, inofensivo en v1
+python-pptx = "^0.6.23"
+matplotlib = "^3.9"
+pandas = "^2.2"
+seaborn = "^0.13"
+typer = {extras = ["all"], version = "^0.12"}
+
+[project.optional-dependencies]
+dev = ["black", "ruff", "mypy", "pytest", "pytest-mock"]
+
+[project.scripts]
+reportgen = "reportgen.__main__:app"
+
+[tool.setuptools.packages.find]
+include = ["reportgen*"]
+exclude = ["tests*", "inputs*", "outputs*", "files*", "cached_files*", "ind_graphs*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I", "B", "UP", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
