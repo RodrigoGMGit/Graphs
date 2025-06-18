@@ -67,17 +67,17 @@ ax.set_ylabel("Squad")
 ax.set_xlabel("Puntuación promedio")
 
 # Etiquetas de valor sobre cada barra
-for p in ax.patches:
-    w = p.get_width()
-    ax.annotate(
-        f"{w:.2f}",
-        (w, p.get_y() + p.get_height() / 2),
-        ha="left",
-        va="center",
-        xytext=(3, 0),
-        textcoords="offset points",
-        fontsize=8,
-    )
+# for p in ax.patches:
+#     w = p.get_width()
+#     ax.annotate(
+#         f"{w:.2f}",
+#         (w, p.get_y() + p.get_height() / 2),
+#         ha="left",
+#         va="center",
+#         xytext=(3, 0),
+#         textcoords="offset points",
+#         fontsize=8,
+#     )
 
 plt.legend(title="Métrica LEP", bbox_to_anchor=(1.05, 1), loc="upper left")
 plt.tight_layout()
