@@ -212,7 +212,7 @@ def build_ui():
         )
 
         dpg.add_checkbox(
-            label="Usar carpeta por defecto",
+            label="Usar carpeta para demo",
             default_value=True,
             tag=TAG_CHK_DEFAULT,
             callback=toggle_combo_cb,
@@ -273,7 +273,7 @@ if __name__ == "__main__":
     dpg.create_context()
     build_ui()
     dpg.create_viewport(
-        title="ChapterSync – Generador de PPT", width=WINDOW_W, height=WINDOW_H
+        title="ChapterSync Generador de PPT", width=WINDOW_W, height=WINDOW_H
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
