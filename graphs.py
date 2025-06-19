@@ -172,8 +172,48 @@ def plot_calidad_pases(file_path: str) -> None:
         plt.plot(
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
+
+        # Añadir etiquetas con el porcentaje de reversiones entre pases
+        for i, row in d.iterrows():
+            if row["passes"] > 0:  # Evitar división por cero
+                percent = (row["revs"] / row["passes"]) * 100
+                # Usar rojo si el porcentaje es mayor a 3%
+                text_color = "red" if percent > 3 else "black"
+                plt.text(
+                    row["Mes"],
+                    row["passes"],
+                    f"{percent:.1f}%",
+                    fontsize=8,
+                    ha="center",
+                    va="bottom",
+                    color=text_color,
+                    bbox=dict(
+                        facecolor="white",
+                        alpha=0.7,
+                        edgecolor="none",
+                        boxstyle="round,pad=0.3",
+                    ),
+                )
+
+        # Añadir nota explicativa en la esquina inferior derecha
+        plt.text(
+            0.95,
+            0.05,
+            "% Reversiones > 3% en rojo",
+            fontsize=8,
+            ha="right",
+            va="top",
+            transform=plt.gca().transAxes,
+            bbox=dict(
+                facecolor="white",
+                alpha=0.8,
+                edgecolor="black",
+                boxstyle="round,pad=0.3",
+            ),
+        )
+
         plt.title(sq)
-        plt.ylabel("Pases a Producción vs Reversiones")
+        plt.ylabel("No. Pases / Reversiones")
         plt.grid(True)
         plt.legend()
         # Forzar pasos de 1 en el eje Y
