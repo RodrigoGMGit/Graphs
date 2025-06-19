@@ -173,9 +173,12 @@ def plot_calidad_pases(file_path: str) -> None:
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
         plt.title(sq)
-        plt.ylabel("No. Pases / Reversiones")
+        plt.ylabel("Pases a Producción vs Reversiones")
         plt.grid(True)
         plt.legend()
+        # Forzar pasos de 1 en el eje Y
+        max_y = int(max(d["passes"].max(), d["revs"].max())) + 1
+        plt.yticks(range(0, max_y, 1))
         plt.tight_layout()
         plt.show()
 
