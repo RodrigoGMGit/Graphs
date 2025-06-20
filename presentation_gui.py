@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# presentation_gui.py – v3.1.3  (19 Jun 2025)
+# presentation_gui.py – v3.4.0  (19 Jun 2025)
 # ---------------------------------------------------------------------------
-# GUI ChapterSync – Perfiles, placeholders, panel de log coloreado
-# Spinner reubicado a la esquina superior derecha (radio 8 px)
+# GUI ChapterSync
+# • Perfiles, log, spinner, presentación PPT
+# • Diseño responsivo con márgenes y separaciones adecuadas
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -34,25 +35,32 @@ if not SYNC_ROOT.exists():
 PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
 DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
 
-WINDOW_W, WINDOW_H = 560, 620  # +altura para log
-SPINNER_RADIUS = 8  # radio reducido
-SPINNER_DIAM = SPINNER_RADIUS * 2 + 2  # diámetro aproximado
+WIN_INIT_W, WIN_INIT_H = 560, 620
+INNER_MARGIN = 10  # padding interior de la ventana
+
+SPINNER_R = 8
+SPINNER_D = SPINNER_R * 2 + 2
+SPINNER_MG = 10  # distancia del spinner al borde
 
 FONT_SIZE, HEADER_FONT_SIZE = 17, 24
 
+# Colores
 COLOR_BG = (30, 35, 45, 255)
 COLOR_HEADER = (52, 152, 219, 255)
 COLOR_BTN = (41, 128, 185, 255)
-COLOR_BTN_HOV = (52, 152, 219, 255)
+COLOR_HOVER = (52, 152, 219, 255)
 COLOR_ERR = (231, 76, 60, 255)
 COLOR_WARN = (255, 215, 0, 255)
 COLOR_INFO = (190, 190, 190, 255)
 
+# Placeholders
 HINT_NAME = "Rene Ruben Plaz Cabrera"
 HINT_EMAIL = "rplaz@bcp.com.pe"
 
 # ───── Tags ──────────────────────────────────────────────────────────
 (
+    TAG_ROOT,
+    TAG_SPINNER,
     TAG_COMBO_PROFILE,
     TAG_BTN_NEW,
     TAG_BTN_EDIT,
@@ -67,9 +75,10 @@ HINT_EMAIL = "rplaz@bcp.com.pe"
     TAG_BTN_OPEN_FOLDER,
     TAG_BTN_OPEN_PPTX,
     TAG_LBL_STATUS,
-    TAG_SPINNER,
     TAG_LOG_CHILD,
 ) = (
+    "##root_window",
+    "##spinner",
     "##combo_profile",
     "##btn_new",
     "##btn_edit",
@@ -84,9 +93,22 @@ HINT_EMAIL = "rplaz@bcp.com.pe"
     "##btn_open_folder",
     "##btn_open_pptx",
     "##lbl_status",
-    "##spinner",
     "##log_child",
 )
+
+# Controles que deben ajustarse de ancho en el callback de resize
+RESPONSIVE_TAGS = [
+    TAG_ROOT,
+    TAG_COMBO_PROFILE,
+    TAG_INPUT_CL,
+    TAG_INPUT_EMAIL,
+    TAG_BTN_CANCEL,
+    TAG_COMBO_MONTH,
+    TAG_BTN_GENERAR,
+    TAG_BTN_OPEN_FOLDER,
+    TAG_BTN_OPEN_PPTX,
+    TAG_LOG_CHILD,
+]
 
 
 # ╔════════════════════  PERFILES (config)  ═══════════════════════════╗
@@ -97,7 +119,7 @@ def load_config() -> Tuple[List[dict], str]:
         data = json.loads(CONFIG_PATH.read_text("utf-8"))
         if "profiles" in data:
             return data["profiles"], data.get("active", "")
-        # migrar formato antiguo
+        # migración formato antiguo
         if "chapter_leader" in data:
             prof = {
                 "name": data["chapter_leader"],
@@ -118,15 +140,12 @@ def save_config(profiles: List[dict], active_email: str) -> None:
 
 
 PROFILES, ACTIVE_EMAIL = load_config()
-EDIT_MODE: str | None = None  # None | "new" | "edit"
-
-
-def get_profile_by_email(email: str) -> dict | None:
-    return next((p for p in PROFILES if p["email"] == email), None)
+EDIT_MODE: str | None = None
+get_profile_by_email = lambda e: next((p for p in PROFILES if p["email"] == e), None)
 
 
 # ╔════════════════════  LOG helpers  ═════════════════════════════════╗
-def log_message(msg: str, level: str = "info") -> None:
+def log_message(msg: str, level="info"):
     color = {"error": COLOR_ERR, "warn": COLOR_WARN}.get(level, COLOR_INFO)
     dpg.add_text(msg, parent=TAG_LOG_CHILD, color=color)
     children: List[int] = dpg.get_item_children(TAG_LOG_CHILD, 1) or []
@@ -134,20 +153,12 @@ def log_message(msg: str, level: str = "info") -> None:
         dpg.delete_item(children[0])
 
 
-def clear_log() -> None:
-    children: List[int] = dpg.get_item_children(TAG_LOG_CHILD, 1) or []
-    for cid in children:
+def clear_log():
+    for cid in dpg.get_item_children(TAG_LOG_CHILD, 1) or []:
         dpg.delete_item(cid)
 
 
-def _patch_graphs_warn() -> None:
-    def _gui_warn(msg: str) -> None:  # type: ignore[override]
-        log_message(msg, "warn")
-
-    graphs._warn = _gui_warn  # type: ignore[attr-defined]
-
-
-_patch_graphs_warn()
+graphs._warn = lambda m: log_message(m, "warn")  # type: ignore[attr-defined]
 
 
 # ╔════════════════════  UTILIDADES GENERAL  ══════════════════════════╗
@@ -160,80 +171,59 @@ def listar_meses() -> List[str]:
     )
 
 
-def abrir_explorador(r: Path) -> None:
-    if not r.exists():
+def abrir_explorador(p: Path):
+    if not p.exists():
         return
     if sys.platform.startswith("win"):
-        os.startfile(str(r))  # type: ignore[attr-defined]
+        os.startfile(str(p))  # type: ignore
     elif sys.platform.startswith("darwin"):
-        subprocess.Popen(["open", str(r)])
+        subprocess.Popen(["open", str(p)])
     else:
-        subprocess.Popen(["xdg-open", str(r)])
+        subprocess.Popen(["xdg-open", str(p)])
 
 
 def registrar_fuente():
     with dpg.font_registry():
-        path = None
-        if os.name == "nt":
-            cand = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts/arial.ttf"
-            if cand.exists():
-                path = str(cand)
-        if path:
-            normal = dpg.add_font(path, FONT_SIZE)
-            header = dpg.add_font(path, HEADER_FONT_SIZE)
+        arial = (
+            Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts/arial.ttf"
+            if os.name == "nt"
+            else None
+        )
+        if arial.exists() if arial else False:
+            normal = dpg.add_font(str(arial), FONT_SIZE)
+            header = dpg.add_font(str(arial), HEADER_FONT_SIZE)
             dpg.bind_font(normal)
             return header
-        try:
-            normal = header = dpg.add_font_default()  # type: ignore[attr-defined]
-            dpg.bind_font(normal)
-            return header
-        except AttributeError:
-            return None
+        normal = header = dpg.add_font_default()
+        dpg.bind_font(normal)
+        return header
 
 
-def theme_global() -> None:
-    with dpg.theme() as t:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLOR_BG)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 12)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 5)
-        with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, COLOR_BTN)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLOR_BTN_HOV)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
-    dpg.bind_theme(t)
-
-
-def set_status(msg: str, err: bool = False) -> None:
+set_status = lambda m, err=False: (
     dpg.configure_item(
-        TAG_LBL_STATUS,
-        default_value=msg,
-        color=COLOR_ERR if err else (255, 255, 255),
-    )
-    log_message(msg, "error" if err else "info")
+        TAG_LBL_STATUS, default_value=m, color=COLOR_ERR if err else (255, 255, 255)
+    ),
+    log_message(m, "error" if err else "info"),
+)
+
+validate_email = lambda e: bool(re.match(r"[^@]+@[^@]+\.[^@]+", e.strip()))
 
 
-def validate_email(email: str) -> bool:
-    return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email.strip()))
-
-
-# ╔════════════════════  UI HELPERS (perfil)  ════════════════════════╗
-def refresh_profile_combo() -> None:
+# ╔════════════════════  UI helpers  ══════════════════════════════════╗
+def refresh_profile_combo():
     names = [p["name"] for p in PROFILES]
     dpg.configure_item(TAG_COMBO_PROFILE, items=names)
-    if not names:
-        dpg.configure_item(TAG_COMBO_PROFILE, default_value="")
-        return
-    prof = get_profile_by_email(ACTIVE_EMAIL)
-    active_name = prof["name"] if prof else names[0]
-    dpg.configure_item(TAG_COMBO_PROFILE, default_value=active_name)
+    if names:
+        active = get_profile_by_email(ACTIVE_EMAIL)
+        dpg.configure_item(
+            TAG_COMBO_PROFILE, default_value=active["name"] if active else names[0]
+        )
 
 
-def show_inputs(name: str = "", email: str = "") -> None:
+def show_inputs(name="", email=""):
     dpg.set_value(TAG_INPUT_CL, name)
     dpg.set_value(TAG_INPUT_EMAIL, email)
-    for it in (
+    for tag in (
         "lbl_nombre",
         TAG_INPUT_CL,
         "lbl_correo",
@@ -241,11 +231,11 @@ def show_inputs(name: str = "", email: str = "") -> None:
         TAG_BTN_CANCEL,
         TAG_INFO,
     ):
-        dpg.show_item(it)
+        dpg.show_item(tag)
 
 
-def hide_inputs() -> None:
-    for it in (
+def hide_inputs():
+    for tag in (
         "lbl_nombre",
         TAG_INPUT_CL,
         "lbl_correo",
@@ -253,43 +243,42 @@ def hide_inputs() -> None:
         TAG_BTN_CANCEL,
         TAG_INFO,
     ):
-        dpg.hide_item(it)
+        dpg.hide_item(tag)
 
 
-def current_name_email() -> Tuple[str, str]:
-    prof = get_profile_by_email(ACTIVE_EMAIL)
-    return (prof["name"], prof["email"]) if prof else ("", "")
+current_name_email = (
+    lambda: (p := get_profile_by_email(ACTIVE_EMAIL))
+    and (p["name"], p["email"])
+    or ("", "")
+)
 
 
-# ╔════════════════════  CALLBACKS — perfiles  ════════════════════════╗
-def on_profile_selected(sender, app_data, user_data) -> None:
+# ╔════════════════════  CALLBACKS – perfiles  ════════════════════════╗
+def on_profile_selected(_, selected, __):
     global ACTIVE_EMAIL
-    if not PROFILES:
-        return
-    selected_name: str = app_data
-    sel_prof = next((p for p in PROFILES if p["name"] == selected_name), None)
-    if sel_prof:
-        ACTIVE_EMAIL = sel_prof["email"]
+    prof = next((p for p in PROFILES if p["name"] == selected), None)
+    if prof:
+        ACTIVE_EMAIL = prof["email"]
         hide_inputs()
-        set_status(f"Perfil activo: {selected_name}")
+        set_status(f"Perfil activo: {selected}")
 
 
-def on_new_profile(*_) -> None:
+def on_new_profile(*_):
     global EDIT_MODE
     EDIT_MODE = "new"
     show_inputs()
 
 
-def on_edit_profile(*_) -> None:
+def on_edit_profile(*_):
     global EDIT_MODE
     if not ACTIVE_EMAIL:
         return
     EDIT_MODE = "edit"
-    name, email = current_name_email()
-    show_inputs(name, email)
+    n, e = current_name_email()
+    show_inputs(n, e)
 
 
-def on_delete_profile(*_) -> None:
+def on_delete_profile(*_):
     global PROFILES, ACTIVE_EMAIL
     if not ACTIVE_EMAIL:
         return
@@ -301,37 +290,29 @@ def on_delete_profile(*_) -> None:
     set_status("Perfil eliminado.")
 
 
-def on_cancel(*_) -> None:
+def on_cancel(*_):
     global EDIT_MODE
     EDIT_MODE = None
     hide_inputs()
 
 
-# ╔════════════════════  CALLBACKS — otros  ═══════════════════════════╗
-def toggle_combo_cb(sender, app_data, user_data) -> None:
-    dpg.configure_item(TAG_COMBO_MONTH, show=not app_data)
+# ╔════════════════════  CALLBACKS varios  ════════════════════════════╗
+toggle_combo_cb = lambda _, checked, __: dpg.configure_item(
+    TAG_COMBO_MONTH, show=not checked
+)
+abrir_carpeta_cb = lambda _, __, path: abrir_explorador(Path(str(path)))
+abrir_pptx_cb = lambda _, __, path: abrir_explorador(Path(str(path)))
 
 
-def abrir_carpeta_cb(sender, a, u) -> None:
-    abrir_explorador(Path(str(u)))
-
-
-def abrir_pptx_cb(sender, a, u) -> None:
-    abrir_explorador(Path(str(u)))
-
-
-# ╔════════════════════  CALLBACK — Generar PPT  ══════════════════════╗
-def generar_cb(*_) -> None:
+# ╔════════════════════  CALLBACK – Generar PPT  ══════════════════════╗
+def generar_cb(*_):
     global PROFILES, ACTIVE_EMAIL, EDIT_MODE
-
-    clear_log()  # limpiar log
-
+    clear_log()
     cl, email = (
         (dpg.get_value(TAG_INPUT_CL).strip(), dpg.get_value(TAG_INPUT_EMAIL).strip())
         if dpg.is_item_shown(TAG_INPUT_CL)
         else current_name_email()
     )
-
     mes = (
         DEFAULT_MONTH_DIR
         if dpg.get_value(TAG_CHK_DEFAULT)
@@ -344,15 +325,13 @@ def generar_cb(*_) -> None:
     dpg.configure_item(TAG_SPINNER, show=True)
 
     if not SYNC_ROOT.exists():
-        return _finish_with_error(f"Ruta raíz no encontrada: {SYNC_ROOT}")
+        return _err(f"Ruta raíz no encontrada: {SYNC_ROOT}")
     if not cl:
-        return _finish_with_error("Nombre del Chapter Leader vacío")
+        return _err("Nombre del Chapter Leader vacío")
     if not validate_email(email):
-        return _finish_with_error("Correo electrónico inválido")
+        return _err("Correo electrónico inválido")
     if not mes:
-        return _finish_with_error("Mes no seleccionado")
-
-    log_message(f"Generando presentación para {cl} ({mes})", "info")
+        return _err("Mes no seleccionado")
 
     graphs.CHAPTER_LEADER = cl
     graphs.CHAPTER_LEADER_EMAIL = email
@@ -361,10 +340,11 @@ def generar_cb(*_) -> None:
     graphs.FILES_DIR = graphs.DATA_DIR
     graphs.CACHE_DIR = os.path.join(graphs.FILES_DIR, graphs.CACHE_SUBDIR)
 
+    log_message(f"Generando presentación para {cl} ({mes})", "info")
     try:
         runpy.run_path(str(PRESENTATION_SCRIPT))
     except Exception as exc:
-        return _finish_with_error(f"Error al generar PPT: {exc}")
+        return _err(f"Error al generar PPT: {exc}")
 
     src = ROOT_DIR / "outputs"
     dst = SYNC_ROOT / mes / "outputs"
@@ -373,22 +353,22 @@ def generar_cb(*_) -> None:
         Path(shutil.copy2(p, dst / p.name)) for p in src.glob("*.pptx")
     ]
     if not pptxs:
-        return _finish_with_error("No se encontró ningún .pptx generado")
-
+        return _err("No se encontró ningún .pptx generado")
     ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
 
+    # actualizar perfiles
     if EDIT_MODE == "new":
         PROFILES.append({"name": cl, "email": email, "validated": True})
         ACTIVE_EMAIL = email
     elif EDIT_MODE == "edit":
-        prof = get_profile_by_email(ACTIVE_EMAIL)
-        if prof:
-            prof.update({"name": cl, "email": email, "validated": True})
+        pr = get_profile_by_email(ACTIVE_EMAIL)
+        if pr:
+            pr.update({"name": cl, "email": email, "validated": True})
             ACTIVE_EMAIL = email
     else:
-        prof = get_profile_by_email(email)
-        if prof:
-            prof["validated"] = True
+        pr = get_profile_by_email(email)
+        if pr:
+            pr["validated"] = True
 
     save_config(PROFILES, ACTIVE_EMAIL)
     refresh_profile_combo()
@@ -402,89 +382,123 @@ def generar_cb(*_) -> None:
     log_message(f"Archivo copiado a {dst}", "info")
 
 
-def _finish_with_error(msg: str) -> None:
-    set_status(msg, err=True)
+def _err(msg: str):
+    set_status(msg, True)
     dpg.configure_item(TAG_SPINNER, show=False)
 
 
-# ╔════════════════════  CONSTRUCCIÓN DE UI  ══════════════════════════╗
-def build_ui() -> None:
-    header = registrar_fuente()
-    theme_global()
+# ╔════════════════════  CALLBACK – resize  ═══════════════════════════╗
+def resize_cb(_, size):
+    # size → (viewport_width, viewport_height)
+    usable_w = max(320, size[0] - 2 * INNER_MARGIN)
+    # root window
+    dpg.configure_item(TAG_ROOT, width=usable_w + 2 * INNER_MARGIN)
+    # widgets generales
+    for tag in RESPONSIVE_TAGS:
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, width=usable_w)
+    # botones 3-en-línea (Nuevo|Editar|Eliminar)
+    each = int((usable_w - 2 * 8) / 3)  # 8 px spacing
+    for tag in (TAG_BTN_NEW, TAG_BTN_EDIT, TAG_BTN_DEL):
+        dpg.configure_item(tag, width=each)
+    # wrap texto info y spinner
+    dpg.configure_item(TAG_INFO, wrap=usable_w)
+    dpg.set_item_pos(
+        TAG_SPINNER, (INNER_MARGIN + usable_w - SPINNER_D - SPINNER_MG, 10)
+    )
+
+
+# ╔════════════════════  BUILD UI  ════════════════════════════════════╗
+def build_ui():
+    # Tema global con padding & spacing
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLOR_BG)
+            dpg.add_theme_style(
+                dpg.mvStyleVar_WindowPadding, INNER_MARGIN, INNER_MARGIN
+            )
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 12)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, COLOR_BTN)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLOR_HOVER)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
+    dpg.bind_theme(theme)
+
+    header_font = registrar_fuente()
 
     with dpg.window(
+        tag=TAG_ROOT,
         label="Generar Presentación",
-        width=WINDOW_W,
-        height=WINDOW_H,
-        no_resize=True,
+        width=WIN_INIT_W + 2 * INNER_MARGIN,
+        height=WIN_INIT_H + 2 * INNER_MARGIN,
         no_collapse=True,
+        no_resize=False,
     ):
-        # Spinner anclado (antes que nada para que quede sobre todo)
-        try:
-            dpg.add_loading_indicator(
-                radius=SPINNER_RADIUS,
-                tag=TAG_SPINNER,
-                show=False,
-                pos=(WINDOW_W - SPINNER_DIAM - 10, 10),
-            )
-        except AttributeError:
-            dpg.add_progress_bar(
-                width=SPINNER_DIAM,
-                default_value=0.5,
-                overlay="",
-                tag=TAG_SPINNER,
-                show=False,
-                pos=(WINDOW_W - SPINNER_DIAM - 10, 10),
-            )
+        # spinner
+        dpg.add_loading_indicator(
+            radius=SPINNER_R,
+            tag=TAG_SPINNER,
+            show=False,
+            pos=(INNER_MARGIN + WIN_INIT_W - SPINNER_D - SPINNER_MG, 10),
+        )
 
         dpg.add_spacer(height=6)
-        title = dpg.add_text("ChapterSync", color=COLOR_HEADER)
-        if header:
-            dpg.bind_item_font(title, header)
+        titulo = dpg.add_text("ChapterSync", color=COLOR_HEADER)
+        if header_font:
+            dpg.bind_item_font(titulo, header_font)
         dpg.add_text("Generación de PPT")
         dpg.add_separator()
 
-        # Selector de perfil
         dpg.add_text("Perfil activo:")
         dpg.add_combo([], tag=TAG_COMBO_PROFILE, width=-1, callback=on_profile_selected)
         refresh_profile_combo()
 
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Nuevo", tag=TAG_BTN_NEW, callback=on_new_profile)
-            dpg.add_button(label="Editar", tag=TAG_BTN_EDIT, callback=on_edit_profile)
             dpg.add_button(
-                label="Eliminar", tag=TAG_BTN_DEL, callback=on_delete_profile
+                label="Nuevo", tag=TAG_BTN_NEW, callback=on_new_profile, width=-1
+            )
+            dpg.add_button(
+                label="Editar", tag=TAG_BTN_EDIT, callback=on_edit_profile, width=-1
+            )
+            dpg.add_button(
+                label="Eliminar", tag=TAG_BTN_DEL, callback=on_delete_profile, width=-1
             )
 
-        # Inputs (ocultos)
         dpg.add_text("Nombre del Chapter Leader:", tag="lbl_nombre", show=False)
         dpg.add_input_text(tag=TAG_INPUT_CL, hint=HINT_NAME, width=-1, show=False)
         dpg.add_text("Correo del Chapter Leader:", tag="lbl_correo", show=False)
         dpg.add_input_text(tag=TAG_INPUT_EMAIL, hint=HINT_EMAIL, width=-1, show=False)
+
         dpg.add_text(
             "Los cambios se guardarán automáticamente\n"
             "cuando la presentación se genere correctamente.",
             tag=TAG_INFO,
-            wrap=WINDOW_W - 40,
+            wrap=WIN_INIT_W,
             color=(200, 200, 200),
             show=False,
         )
         dpg.add_button(
-            label="Cancelar", tag=TAG_BTN_CANCEL, callback=on_cancel, show=False
+            label="Cancelar",
+            tag=TAG_BTN_CANCEL,
+            callback=on_cancel,
+            show=False,
+            width=-1,
         )
 
-        # Mes
         dpg.add_checkbox(
             label="Usar carpeta para demo",
             default_value=True,
             tag=TAG_CHK_DEFAULT,
             callback=toggle_combo_cb,
         )
-        meses = listar_meses()
         dpg.add_combo(
-            meses,
+            listar_meses(),
             label="Selecciona mes",
-            default_value=DEFAULT_MONTH_DIR if DEFAULT_MONTH_DIR in meses else "",
+            default_value=DEFAULT_MONTH_DIR
+            if DEFAULT_MONTH_DIR in listar_meses()
+            else "",
             tag=TAG_COMBO_MONTH,
             width=-1,
             show=False,
@@ -497,28 +511,33 @@ def build_ui() -> None:
             callback=generar_cb,
             width=-1,
         )
-
         dpg.add_button(
             label="Abrir carpeta",
             tag=TAG_BTN_OPEN_FOLDER,
             show=False,
             callback=abrir_carpeta_cb,
+            width=-1,
         )
         dpg.add_button(
             label="Abrir presentación",
             tag=TAG_BTN_OPEN_PPTX,
             show=False,
             callback=abrir_pptx_cb,
+            width=-1,
         )
 
         dpg.add_text("", tag=TAG_LBL_STATUS)
 
-        # Panel LOG
         dpg.add_separator()
         dpg.add_text("Registro de mensajes:")
-        dpg.add_child_window(
-            tag=TAG_LOG_CHILD, autosize_x=True, height=140, border=True
-        )
+        dpg.add_child_window(tag=TAG_LOG_CHILD, width=-1, height=140, border=True)
+
+    # callback resize
+    (
+        dpg.add_viewport_resize_callback
+        if hasattr(dpg, "add_viewport_resize_callback")
+        else dpg.set_viewport_resize_callback
+    )(resize_cb)
 
     with dpg.handler_registry():
         dpg.add_key_press_handler(
@@ -532,7 +551,10 @@ if __name__ == "__main__":
     dpg.create_context()
     build_ui()
     dpg.create_viewport(
-        title="ChapterSync Generador de PPT", width=WINDOW_W, height=WINDOW_H
+        title="ChapterSync Generador de PPT",
+        resizable=True,
+        width=WIN_INIT_W + 2 * INNER_MARGIN,
+        height=WIN_INIT_H + 2 * INNER_MARGIN,
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
