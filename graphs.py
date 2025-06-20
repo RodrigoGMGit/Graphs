@@ -30,7 +30,8 @@ import seaborn as sns
 from matplotlib import cm, colors
 
 # ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
+DATA_DIR = r".\files"
+# DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
 CACHE_SUBDIR = "cached_files"
 
 FILES_DIR = DATA_DIR
