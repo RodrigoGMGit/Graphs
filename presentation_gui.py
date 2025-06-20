@@ -349,7 +349,7 @@ def generar_cb(s=None, a=None, u=None):
     # Copiar PPTX al directorio de sincronización
     src, dst = ROOT_DIR / "outputs", SYNC_ROOT / mes / "outputs"
     dst.mkdir(exist_ok=True)
-    pptxs = [shutil.copy2(p, dst / p.name) for p in src.glob("*.pptx")]
+    pptxs = [Path(shutil.copy2(p, dst / p.name)) for p in src.glob("*.pptx")]
     if not pptxs:
         set_status("⚠ No se encontró ningún .pptx para copiar", err=True)
         dpg.configure_item(TAG_SPINNER, show=False)
