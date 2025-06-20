@@ -16,7 +16,7 @@ hidden = [
     'seaborn',
     'openpyxl',
     'pyarrow',
-    'python-pptx',
+    'pptx',
     'dearpygui.dearpygui',
 ]
 
