@@ -48,4 +48,3 @@ exe = EXE(
     upx=True,
     console=True,
 )
-
