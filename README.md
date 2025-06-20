@@ -1,6 +1,6 @@
-# Utilidades de Gráficos
+# Chapter Sync PPT Generator
 
-Este repositorio contiene varios scripts de Python que generan gráficas a partir de archivos de Excel y crean presentaciones en PowerPoint.
+Este sistema automatiza la generación de presentaciones (PPTX) con métricas de Chapter Sync a partir de archivos Excel mensuales y ofrece una GUI en Dear PyGUI para que el usuario (el Chapter Leader o su equipo) lance el proceso sin tocar código
 
 ## Funcionalidades
 
