@@ -59,7 +59,9 @@ EXECUTOR = ThreadPoolExecutor(max_workers=1)
 APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 # Directorio persistente donde guardar configuraciones y salidas
-EXEC_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+EXEC_DIR = (
+    Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+)
 
 # Ruta para la configuración del usuario
 CONFIG_PATH = EXEC_DIR / "chapter_config.json"
@@ -495,7 +497,7 @@ def build_ui():
                     dpg.bind_item_font(title, header_font)
                 dpg.add_text("Generación de PPT")
             dpg.add_loading_indicator(radius=SPINNER_R, tag=TAG_SPINNER, show=False)
-        dpg.add_spacer(height=4)
+        dpg.add_spacer(height=130)
         dpg.add_separator()
 
         dpg.add_text("Perfil activo:")
