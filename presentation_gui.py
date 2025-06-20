@@ -59,7 +59,9 @@ EXECUTOR = ThreadPoolExecutor(max_workers=1)
 APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 # Directorio persistente donde guardar configuraciones y salidas
-EXEC_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+EXEC_DIR = (
+    Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+)
 
 # Ruta para la configuración del usuario
 CONFIG_PATH = EXEC_DIR / "chapter_config.json"
@@ -74,6 +76,7 @@ PRESENTATION_SCRIPT = APP_DIR / "generate_presentation.py"
 (
     TAG_ROOT,
     TAG_SPINNER,
+    TAG_HEADER_GROUP,
     TAG_COMBO_PROFILE,
     TAG_BTN_NEW,
     TAG_BTN_EDIT,
@@ -93,6 +96,7 @@ PRESENTATION_SCRIPT = APP_DIR / "generate_presentation.py"
 ) = (
     "##root",
     "##spinner",
+    "##header_group",
     "##combo_profile",
     "##btn_new",
     "##btn_edit",
@@ -113,6 +117,7 @@ PRESENTATION_SCRIPT = APP_DIR / "generate_presentation.py"
 
 RESPONSIVE_TAGS = [
     TAG_ROOT,
+    TAG_HEADER_GROUP,
     TAG_COMBO_PROFILE,
     TAG_INPUT_CL,
     TAG_INPUT_EMAIL,
@@ -449,13 +454,15 @@ def resize_cb(_, data):
 
     dpg.configure_item(TAG_INFO, wrap=usable_w)
 
-    dpg.set_item_pos(  # type: ignore[arg-type]
-        TAG_SPINNER,
-        [
-            LEFT_PAD + usable_w - SPINNER_D - SPINNER_MG,
-            VERT_PAD + usable_h - SPINNER_D - SPINNER_MG,
-        ],
-    )
+    if dpg.does_item_exist(TAG_HEADER_GROUP):
+        w_head, h_head = dpg.get_item_rect_size(TAG_HEADER_GROUP)
+        dpg.set_item_pos(  # type: ignore[arg-type]
+            TAG_HEADER_GROUP,
+            [
+                LEFT_PAD + (usable_w - w_head) // 2,
+                VERT_PAD,
+            ],
+        )
 
 
 # ╔══════════════════ BUILD UI ═══════════════════════════════════════╗
@@ -483,13 +490,14 @@ def build_ui():
         no_collapse=True,
         no_resize=False,
     ):
-        dpg.add_loading_indicator(radius=SPINNER_R, tag=TAG_SPINNER, show=False)
-
-        dpg.add_spacer(height=4)
-        title = dpg.add_text("ChapterSync", color=COLOR_HEADER)
-        if header_font:
-            dpg.bind_item_font(title, header_font)
-        dpg.add_text("Generación de PPT")
+        with dpg.group(horizontal=True, tag=TAG_HEADER_GROUP):
+            with dpg.group():
+                title = dpg.add_text("ChapterSync", color=COLOR_HEADER)
+                if header_font:
+                    dpg.bind_item_font(title, header_font)
+                dpg.add_text("Generación de PPT")
+            dpg.add_loading_indicator(radius=SPINNER_R, tag=TAG_SPINNER, show=False)
+        dpg.add_spacer(height=130)
         dpg.add_separator()
 
         dpg.add_text("Perfil activo:")
