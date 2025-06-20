@@ -402,10 +402,34 @@ def plot_tiempo_desarrollo(file_path: str) -> None:
 def parse_args():
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
-    p.add_argument("--calidad", nargs="?", help="Archivo Calidad .xlsx")
-    p.add_argument("--dedicacion", nargs="?", help="Archivo DR .xlsx")
-    p.add_argument("--madurez", nargs="?", help="Archivo NivelesMadurez .xlsx")
-    p.add_argument("--tiempo", nargs="?", help="Archivo TMD .xlsx")
+    p.add_argument(
+        "--calidad",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Generar gráfico de calidad. Si no se especifica archivo, se busca automáticamente.",
+    )
+    p.add_argument(
+        "--dedicacion",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Generar gráfico de dedicación. Si no se especifica archivo, se busca automáticamente.",
+    )
+    p.add_argument(
+        "--madurez",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Generar gráfico de madurez. Si no se especifica archivo, se busca automáticamente.",
+    )
+    p.add_argument(
+        "--tiempo",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Generar gráfico de tiempo. Si no se especifica archivo, se busca automáticamente.",
+    )
     return p.parse_args()
 
 
@@ -420,17 +444,41 @@ def main() -> None:
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     tasks = [
-        ("calidad", _resolve_path(a.calidad, "calidad"), plot_calidad_pases),
-        ("dedicacion", _resolve_path(a.dedicacion, "dedicacion"), plot_dedicacion_tm),
-        ("madurez", _resolve_path(a.madurez, "madurez"), plot_niveles_madurez),
-        ("tiempo", _resolve_path(a.tiempo, "tiempo"), plot_tiempo_desarrollo),
+        ("calidad", a.calidad, plot_calidad_pases),
+        ("dedicacion", a.dedicacion, plot_dedicacion_tm),
+        ("madurez", a.madurez, plot_niveles_madurez),
+        ("tiempo", a.tiempo, plot_tiempo_desarrollo),
     ]
 
     any_run = False
-    for _, path, fn in tasks:
-        if path:
-            any_run = True
-            fn(path)
+
+    for task_key, arg, fn in tasks:
+        if arg is not None:
+            if arg is True:
+                # Buscar automáticamente el archivo
+                path = _find_file_by_keyword(FILE_KEYWORDS[task_key])
+                if path:
+                    fn(path)
+                    any_run = True
+                else:
+                    _warn(f"No se encontró archivo para {task_key}")
+            else:
+                # Usar el archivo proporcionado
+                path = arg if os.path.isabs(arg) else os.path.join(FILES_DIR, arg)
+                if os.path.isfile(path):
+                    fn(path)
+                    any_run = True
+                else:
+                    _warn(f"Archivo no encontrado: {path}")
+
+    if not any_run:
+        # Si no se especificó ningún gráfico, intentar generar todos automáticamente
+        for task_key, _, fn in tasks:
+            path = _find_file_by_keyword(FILE_KEYWORDS[task_key])
+            if path:
+                fn(path)
+                any_run = True
+
     if not any_run:
         _warn("Ningún gráfico se ejecutó: revisa los archivos o los parámetros CLI.")
 
