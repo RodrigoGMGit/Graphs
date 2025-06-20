@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# presentation_gui.py – v3.6.0  (19 Jun 2025)
+# presentation_gui.py – v3.7.0  (20 Jun 2025)
 # ---------------------------------------------------------------------------
 # GUI ChapterSync  –  Dear PyGUI
-#  • Hilo de fondo con spinner activo
-#  • Perfiles persistentes (@dataclass → JSON)
-#  • Márgenes interno izquierdo y derecho independientes
+#  • Demo: usa siempre .\files\
+#  • Modo externo: permite elegir cualquier carpeta con un diálogo
+#  • Sin selector de mes (combo eliminado)
+#  • Salida .\outputs\  (nivel raíz del proyecto)
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -13,11 +14,9 @@ import json
 import os
 import re
 import runpy
-import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -26,22 +25,21 @@ import dearpygui.dearpygui as dpg
 
 import graphs
 
-# ╔══════════════════ CONFIG VISUAL  ═════════════════════════════════╗
-LEFT_PAD = 20  # margen interno izquierdo
-RIGHT_PAD = 20  # margen interno derecho
-BASE_PAD = 12  # padding simétrico mínimo (Dear PyGUI sólo acepta 1 valor)
+# ╔══════════════════ CONFIG VISUAL ══════════════════════════════════╗
+LEFT_PAD = 20
+RIGHT_PAD = 20
+BASE_PAD = 12
 
-VERT_PAD = 16  # padding vertical para todas las ventanas
-BTN_SPACING = 8  # separación horizontal entre botones
+VERT_PAD = 16
+BTN_SPACING = 8
 
 WIN_INIT_W, WIN_INIT_H = 560, 620
 SPINNER_R = 8
 SPINNER_D = SPINNER_R * 2 + 2
-SPINNER_MG = 14  # separación extra del spinner al borde
+SPINNER_MG = 14
 
 FONT_SIZE, HEADER_FONT_SIZE = 17, 24
 
-# Colores
 COLOR_BG = (30, 35, 45, 255)
 COLOR_HEADER = (52, 152, 219, 255)
 COLOR_BTN = (41, 128, 185, 255)
@@ -55,18 +53,13 @@ HINT_EMAIL = "rplaz@bcp.com.pe"
 
 EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
-# ╔══════════════════ RUTAS  ═════════════════════════════════════════╗
+# ╔══════════════════ RUTAS ══════════════════════════════════════════╗
 ROOT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT_DIR / "chapter_config.json"
-SYNC_ROOT = (ROOT_DIR.parent / "ChapterSyncFiles" / "S00001").resolve()
-with suppress(Exception):
-    if not SYNC_ROOT.exists():
-        SYNC_ROOT = Path(graphs.DATA_DIR).resolve().parents[1]
-
+FILES_DIR_DEMO = ROOT_DIR / "files"  # carpeta fija del workspace
 PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
-DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
 
-# ╔══════════════════ TAGS  ══════════════════════════════════════════╗
+# ╔══════════════════ TAGS ═══════════════════════════════════════════╗
 (
     TAG_ROOT,
     TAG_SPINNER,
@@ -78,8 +71,9 @@ DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
     TAG_INPUT_EMAIL,
     TAG_BTN_CANCEL,
     TAG_INFO,
-    TAG_CHK_DEFAULT,
-    TAG_COMBO_MONTH,
+    TAG_CHK_DEMO,
+    TAG_INPUT_DIR,
+    TAG_BTN_BROWSE_DIR,
     TAG_BTN_GENERAR,
     TAG_BTN_OPEN_FOLDER,
     TAG_BTN_OPEN_PPTX,
@@ -96,8 +90,9 @@ DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
     "##input_email",
     "##btn_cancel",
     "##lbl_info",
-    "##chk_default",
-    "##combo_month",
+    "##chk_demo",
+    "##input_dir",
+    "##btn_browse_dir",
     "##btn_generar",
     "##btn_open_folder",
     "##btn_open_pptx",
@@ -111,14 +106,14 @@ RESPONSIVE_TAGS = [
     TAG_INPUT_CL,
     TAG_INPUT_EMAIL,
     TAG_BTN_CANCEL,
-    TAG_COMBO_MONTH,
+    TAG_INPUT_DIR,
     TAG_BTN_GENERAR,
     TAG_BTN_OPEN_FOLDER,
     TAG_BTN_OPEN_PPTX,
     TAG_LOG_CHILD,
 ]
 
-# ╔══════════════════ PERFILES  ══════════════════════════════════════╗
+# ╔══════════════════ PERFILES ═══════════════════════════════════════╗
 EMAIL_RE = re.compile(r"^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$")
 
 
@@ -157,12 +152,12 @@ def prof_by_email(e: str) -> Profile | None:
     return next((p for p in PROFILES if p.email == e), None)
 
 
-# ╔══════════════════ LOG helpers  ═══════════════════════════════════╗
+# ╔══════════════════ LOG helpers ════════════════════════════════════╗
 def log_message(msg: str, level="info"):
     col = {"error": COLOR_ERR, "warn": COLOR_WARN}.get(level, COLOR_INFO)
     dpg.add_text(msg, parent=TAG_LOG_CHILD, color=col)
-    if (children := dpg.get_item_children(TAG_LOG_CHILD, 1)) and len(children) > 500:
-        dpg.delete_item(children[0])
+    if (kids := dpg.get_item_children(TAG_LOG_CHILD, 1)) and len(kids) > 500:
+        dpg.delete_item(kids[0])
 
 
 graphs._warn = lambda m: log_message(m, "warn")  # type: ignore[attr-defined]
@@ -175,16 +170,7 @@ def set_status(msg: str, err=False):
     log_message(msg, "error" if err else "info")
 
 
-# ╔══════════════════ UTILIDADES  ════════════════════════════════════╗
-def listar_meses() -> List[str]:
-    if not SYNC_ROOT.exists():
-        return []
-    pat = re.compile(r"^20\d{2} [01]\d$")
-    return sorted(
-        p.name for p in SYNC_ROOT.iterdir() if p.is_dir() and pat.match(p.name)
-    )
-
-
+# ╔══════════════════ UTILIDADES ═════════════════════════════════════╗
 def abrir_explorador(p: Path):
     if not p.exists():
         return
@@ -210,7 +196,23 @@ def registrar_fuente():
         return header
 
 
-# ╔══════════════════ CALLBACKS básicos  ═════════════════════════════╗
+def browse_dir_cb(*_):
+    """Diálogo nativo para elegir carpeta (tkinter)."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        path = filedialog.askdirectory(initialdir=str(ROOT_DIR))
+        root.destroy()
+        if path:
+            dpg.set_value(TAG_INPUT_DIR, path)
+    except Exception as exc:
+        _err(f"No se pudo abrir diálogo: {exc}")
+
+
+# ╔══════════════════ CALLBACKS básicos ══════════════════════════════╗
 def refresh_combo():
     items = [p.name for p in PROFILES]
     dpg.configure_item(TAG_COMBO_PROFILE, items=items)
@@ -227,7 +229,7 @@ def on_profile_selected(_, sel, __):
         set_status(f"Perfil activo: {sel}")
 
 
-def show_inputs(name="", email=""):
+def show_inputs(name: str = "", email: str = ""):
     dpg.set_value(TAG_INPUT_CL, name)
     dpg.set_value(TAG_INPUT_EMAIL, email)
     for t in (
@@ -291,51 +293,36 @@ def on_cancel(*_):
     hide_inputs()
 
 
-# ╔══════════════════ GENERACIÓN PPT  (hilo)  ════════════════════════╗
-def _gen_ppt(cl, email, mes):
+# ╔══════════════════ GENERACIÓN PPT  (hilo) ═════════════════════════╗
+def _gen_ppt(cl: str, email: str, data_dir: str):
     try:
+        # Actualizar rutas dinámicas en graphs
         graphs.CHAPTER_LEADER, graphs.CHAPTER_LEADER_EMAIL = cl, email
         graphs.CL_NORM = graphs.normalize_name(cl)
-        graphs.DATA_DIR = str(SYNC_ROOT / mes)
-        graphs.FILES_DIR = graphs.DATA_DIR
-        graphs.CACHE_DIR = os.path.join(graphs.FILES_DIR, graphs.CACHE_SUBDIR)
+        graphs.DATA_DIR = data_dir
+        graphs.FILES_DIR = data_dir
+        graphs.CACHE_DIR = os.path.join(data_dir, graphs.CACHE_SUBDIR)
 
         runpy.run_path(str(PRESENTATION_SCRIPT))
-        dst = SYNC_ROOT / mes / "outputs"
-        dst.mkdir(exist_ok=True)
-        src = ROOT_DIR / "outputs"
-        pptxs = [Path(shutil.copy2(p, dst / p.name)) for p in src.glob("*.pptx")]
+
+        src_dir = ROOT_DIR / "outputs"
+        pptxs = list(src_dir.glob("*.pptx"))
         if not pptxs:
             return False, "No se generó .pptx", None, None
         ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
-        return True, "Presentación generada.", str(dst), str(ultimo)
+        return True, "Presentación generada.", str(src_dir), str(ultimo)
     except Exception as exc:
         return False, f"Error: {exc}", None, None
 
 
 # ─── util cross-thread → hilo GUI ────────────────────────────────────
 def _invoke(func, *args):
-    """
-    Ejecuta `func(*args)` en el hilo principal cualquiera que sea la
-    versión de Dear PyGUI.
-
-    Orden de prueba:
-      1. invoke_callback   (≥ 1.4)
-      2. invoke_deferred   (≥ 1.3)
-      3. add_render_callback (≥ 0.8, < 1.3)
-      4. set_render_callback  (≤ 0.8  y también en 2.0.0)
-      5. llamada directa    (fallback extremo)
-    """
-
-    # 1-2  (no existen en 2.0.0, pero por si actualizas)
     if hasattr(dpg, "invoke_callback"):
         dpg.invoke_callback(func, *args)  # type: ignore[attr-defined]
         return
     if hasattr(dpg, "invoke_deferred"):
         dpg.invoke_deferred(func, *args)  # type: ignore[attr-defined]
         return
-
-    # 3  (series 0.8–1.2)
     if hasattr(dpg, "add_render_callback"):
         token = []
 
@@ -345,8 +332,6 @@ def _invoke(func, *args):
 
         token.append(dpg.add_render_callback(_once1))  # type: ignore[attr-defined]
         return
-
-    # 4  (≤0.8  y  2.0.x alpha/beta)
     if hasattr(dpg, "set_render_callback"):
 
         def _once(sender, data):
@@ -355,8 +340,6 @@ def _invoke(func, *args):
 
         dpg.set_render_callback(_once)  # type: ignore[attr-defined]
         return
-
-    # 5  – último recurso (no recomendable, pero evita crash)
     func(*args)
 
 
@@ -372,22 +355,22 @@ def generar_cb(*_):
         if dpg.is_item_shown(TAG_INPUT_CL)
         else current_name_email()
     )
-    mes = (
-        DEFAULT_MONTH_DIR
-        if dpg.get_value(TAG_CHK_DEFAULT)
-        else dpg.get_value(TAG_COMBO_MONTH)
-    )
 
-    if not SYNC_ROOT.exists():
-        return _err(f"Ruta no encontrada: {SYNC_ROOT}")
+    if dpg.get_value(TAG_CHK_DEMO):
+        data_dir = str(FILES_DIR_DEMO)
+    else:
+        data_dir = dpg.get_value(TAG_INPUT_DIR).strip()
+
     if not cl:
         return _err("Nombre vacío")
     if not EMAIL_RE.fullmatch(email):
         return _err("Email inválido")
-    if not mes:
-        return _err("Mes no seleccionado")
+    if not data_dir:
+        return _err("Carpeta de datos no seleccionada")
+    if not Path(data_dir).exists():
+        return _err(f"Ruta no encontrada: {data_dir}")
 
-    future = EXECUTOR.submit(_gen_ppt, cl, email, mes)
+    future = EXECUTOR.submit(_gen_ppt, cl, email, data_dir)
     future.add_done_callback(lambda fut: _invoke(on_done, fut, cl, email))
 
 
@@ -416,7 +399,7 @@ def on_done(fut, cl, email):
     if dst and ppt:
         dpg.configure_item(TAG_BTN_OPEN_FOLDER, user_data=dst, show=True)
         dpg.configure_item(TAG_BTN_OPEN_PPTX, user_data=ppt, show=True)
-        log_message(f"Archivo copiado a {dst}")
+        log_message(f"Archivo disponible en {dst}")
     set_status(msg)
 
 
@@ -425,7 +408,7 @@ def _err(m):
     dpg.configure_item(TAG_SPINNER, show=False)
 
 
-# ╔══════════════════ RESIZE  ════════════════════════════════════════╗
+# ╔══════════════════ RESIZE ═════════════════════════════════════════╗
 def resize_cb(_, data):
     if isinstance(data, (list, tuple)):
         w, h = data[:2]
@@ -438,7 +421,7 @@ def resize_cb(_, data):
     usable_w = max(320, w - LEFT_PAD - RIGHT_PAD)
     usable_h = max(300, h - 2 * VERT_PAD)
 
-    dpg.configure_item(TAG_ROOT, width=w, height=h)  # la ventana ocupa todo el viewport
+    dpg.configure_item(TAG_ROOT, width=w, height=h)
 
     for t in RESPONSIVE_TAGS:
         if dpg.does_item_exist(t):
@@ -459,9 +442,8 @@ def resize_cb(_, data):
     )
 
 
-# ╔══════════════════ BUILD UI  ══════════════════════════════════════╗
+# ╔══════════════════ BUILD UI ═══════════════════════════════════════╗
 def build_ui():
-    # --- tema global ---
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLOR_BG)
@@ -519,21 +501,30 @@ def build_ui():
             label="Cancelar", tag=TAG_BTN_CANCEL, callback=on_cancel, show=False
         )
 
+        # Demo / Externo
         dpg.add_checkbox(
-            label="Usar carpeta para demo",
+            label="Usar carpeta de demo (./files)",
             default_value=True,
-            tag=TAG_CHK_DEFAULT,
-            callback=lambda s, c, u: dpg.configure_item(TAG_COMBO_MONTH, show=not c),
+            tag=TAG_CHK_DEMO,
+            callback=lambda s, c, u: (
+                dpg.configure_item(TAG_INPUT_DIR, show=not c),
+                dpg.configure_item(TAG_BTN_BROWSE_DIR, show=not c),
+            ),
         )
-        dpg.add_combo(
-            listar_meses(),
-            label="Selecciona mes",
-            default_value=DEFAULT_MONTH_DIR
-            if DEFAULT_MONTH_DIR in listar_meses()
-            else "",
-            tag=TAG_COMBO_MONTH,
-            show=False,
-        )
+
+        with dpg.group(horizontal=True):
+            dpg.add_input_text(
+                label="Carpeta de datos",
+                tag=TAG_INPUT_DIR,
+                hint="C:\\ruta\\a\\tu\\carpeta",
+                show=False,
+            )
+            dpg.add_button(
+                label="Examinar...",
+                tag=TAG_BTN_BROWSE_DIR,
+                callback=browse_dir_cb,
+                show=False,
+            )
 
         dpg.add_spacer(height=6)
         dpg.add_button(
@@ -571,7 +562,7 @@ def build_ui():
         dpg.add_key_press_handler(dpg.mvKey_Return, callback=generar_cb)
 
 
-# ╔══════════════════ MAIN  ══════════════════════════════════════════╗
+# ╔══════════════════ MAIN ═══════════════════════════════════════════╗
 if __name__ == "__main__":
     dpg.create_context()
     build_ui()
