@@ -213,7 +213,7 @@ def plot_calidad_pases(file_path: str) -> None:
         )
 
         plt.title(sq)
-        plt.ylabel("No. Pases / Reversiones")
+        plt.ylabel("Pases a PRD vs Reversiones")
         plt.grid(True)
         plt.legend()
         # Forzar pasos de 1 en el eje Y
@@ -403,28 +403,28 @@ def parse_args():
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
     p.add_argument(
-        "--calidad",
+        "--rev",
         nargs="?",
         const=True,
         default=None,
         help="Generar gráfico de calidad. Si no se especifica archivo, se busca automáticamente.",
     )
     p.add_argument(
-        "--dedicacion",
+        "--dr",
         nargs="?",
         const=True,
         default=None,
         help="Generar gráfico de dedicación. Si no se especifica archivo, se busca automáticamente.",
     )
     p.add_argument(
-        "--madurez",
+        "--m",
         nargs="?",
         const=True,
         default=None,
         help="Generar gráfico de madurez. Si no se especifica archivo, se busca automáticamente.",
     )
     p.add_argument(
-        "--tiempo",
+        "--tmd",
         nargs="?",
         const=True,
         default=None,
@@ -444,10 +444,10 @@ def main() -> None:
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     tasks = [
-        ("calidad", a.calidad, plot_calidad_pases),
-        ("dedicacion", a.dedicacion, plot_dedicacion_tm),
-        ("madurez", a.madurez, plot_niveles_madurez),
-        ("tiempo", a.tiempo, plot_tiempo_desarrollo),
+        ("calidad", a.rev, plot_calidad_pases),
+        ("dedicacion", a.dr, plot_dedicacion_tm),
+        ("madurez", a.m, plot_niveles_madurez),
+        ("tiempo", a.tmd, plot_tiempo_desarrollo),
     ]
 
     any_run = False
