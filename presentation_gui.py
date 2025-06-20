@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-# presentation_gui.py – v2.4.6  (19 Jun 2025)
+# presentation_gui.py – v2.5.1  (19 Jun 2025)
 # ---------------------------------------------------------------------------
 # Interfaz DearPyGui para generar presentaciones de Chapter Leaders (ChapterSync)
+# Añade archivo de configuración + placeholders en inputs
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import runpy
 import shutil
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 from typing import List
 
@@ -21,17 +24,17 @@ import graphs
 
 # ────────── Configuración ──────────
 ROOT_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = ROOT_DIR / "chapter_config.json"
+
 SYNC_ROOT = (ROOT_DIR.parent / "ChapterSyncFiles" / "S00001").resolve()
 if not SYNC_ROOT.exists():
-    try:
+    with suppress(Exception):
         SYNC_ROOT = Path(graphs.DATA_DIR).resolve().parents[1]
-    except Exception:
-        pass
 
 PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
 DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name  # ‘2025 05’
 
-WINDOW_W, WINDOW_H = 560, 500  # Aumentar altura para acomodar nuevo campo
+WINDOW_W, WINDOW_H = 560, 500
 FONT_SIZE, HEADER_FONT_SIZE = 17, 24
 
 COLOR_BG = (30, 35, 45, 255)
@@ -40,22 +43,58 @@ COLOR_BTN = (41, 128, 185, 255)
 COLOR_BTN_HOV = (52, 152, 219, 255)
 COLOR_ERR = (231, 76, 60, 255)
 
+# Placeholders (hints)  ────────────────────────────────────────────────
+HINT_NAME = "Rene Ruben Plaz Cabrera"
+HINT_EMAIL = "rplaz@bcp.com.pe"
+
 # Tags
-TAG_INPUT_CL, TAG_INPUT_EMAIL, TAG_CHK_DEFAULT, TAG_COMBO_MONTH = (
+(
+    TAG_INPUT_CL,
+    TAG_INPUT_EMAIL,
+    TAG_CHK_DEFAULT,
+    TAG_COMBO_MONTH,
+    TAG_BTN_GENERAR,
+    TAG_BTN_OPEN_FOLDER,
+    TAG_BTN_OPEN_PPTX,
+    TAG_BTN_EDIT,
+    TAG_LBL_STATUS,
+    TAG_SPINNER,
+) = (
     "##input_cl",
-    "##input_email",  # Nuevo tag para el correo
+    "##input_email",
     "##chk_default",
     "##combo_month",
-)
-TAG_BTN_GENERAR, TAG_BTN_OPEN_FOLDER, TAG_BTN_OPEN_PPTX = (
     "##btn_generar",
     "##btn_open_folder",
     "##btn_open_pptx",
+    "##btn_edit",
+    "##lbl_status",
+    "##spinner",
 )
-TAG_LBL_STATUS, TAG_SPINNER = "##lbl_status", "##spinner"
 
 
-# ────────── Utilidades ──────────
+# ────────── utilidades de configuración ──────────
+def load_config() -> tuple[str, str, bool]:
+    if CONFIG_PATH.exists():
+        with suppress(Exception):
+            data = json.loads(CONFIG_PATH.read_text("utf-8"))
+            return (
+                data.get("chapter_leader", ""),
+                data.get("email", ""),
+                bool(data.get("validated")),
+            )
+    return "", "", False
+
+
+def save_config(nombre: str, correo: str) -> None:
+    data = {"chapter_leader": nombre, "email": correo, "validated": True}
+    CONFIG_PATH.write_text(json.dumps(data, indent=2), "utf-8")
+
+
+CL_NAME, CL_EMAIL, CFG_OK = load_config()
+
+
+# ────────── Utilidades varias ──────────
 def listar_meses() -> List[str]:
     if not SYNC_ROOT.exists():
         return []
@@ -116,11 +155,20 @@ def set_error(msg: str):
 
 # ────────── Validación de correo ──────────
 def validate_email(email: str) -> bool:
-    """Valida que el correo tenga un formato básico (contiene @ y dominio)."""
-    email = email.strip()
-    if not email:
-        return False
-    return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
+    return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email.strip()))
+
+
+# ────────── helpers de inputs ──────────
+def hide_cred_inputs():
+    for item in ("lbl_nombre", TAG_INPUT_CL, "lbl_correo", TAG_INPUT_EMAIL):
+        if dpg.does_item_exist(item):
+            dpg.hide_item(item)
+
+
+def show_cred_inputs():
+    for item in ("lbl_nombre", TAG_INPUT_CL, "lbl_correo", TAG_INPUT_EMAIL):
+        if dpg.does_item_exist(item):
+            dpg.show_item(item)
 
 
 # ────────── Callbacks ──────────
@@ -136,16 +184,33 @@ def toggle_combo_cb(s, a, u):
     dpg.configure_item(TAG_COMBO_MONTH, show=not a)
 
 
+def on_edit_cb(sender, a, u):
+    if dpg.is_item_shown(TAG_INPUT_CL):
+        hide_cred_inputs()
+        dpg.set_item_label(sender, "Editar credenciales")
+    else:
+        show_cred_inputs()
+        dpg.set_item_label(sender, "Cancelar")
+
+
 def generar_cb(s=None, a=None, u=None):
-    cl = dpg.get_value(TAG_INPUT_CL).strip()
-    email = dpg.get_value(TAG_INPUT_EMAIL).strip()
+    cl = (
+        dpg.get_value(TAG_INPUT_CL).strip()
+        if dpg.does_item_exist(TAG_INPUT_CL)
+        else CL_NAME
+    )
+    email = (
+        dpg.get_value(TAG_INPUT_EMAIL).strip()
+        if dpg.does_item_exist(TAG_INPUT_EMAIL)
+        else CL_EMAIL
+    )
     useD = dpg.get_value(TAG_CHK_DEFAULT)
     mes = DEFAULT_MONTH_DIR if useD else dpg.get_value(TAG_COMBO_MONTH)
 
     # Reset UI
     dpg.configure_item(TAG_BTN_OPEN_FOLDER, show=False)
     dpg.configure_item(TAG_BTN_OPEN_PPTX, show=False)
-    dpg.configure_item(TAG_LBL_STATUS, default_value="")
+    dpg.configure_item(TAG_LBL_STATUS, default_value="", color=(255, 255, 255))
     dpg.configure_item(TAG_SPINNER, show=True)
 
     # Validaciones
@@ -167,7 +232,7 @@ def generar_cb(s=None, a=None, u=None):
         return
 
     graphs.CHAPTER_LEADER = cl
-    graphs.CHAPTER_LEADER_EMAIL = email  # Pasar el correo a graphs.py
+    graphs.CHAPTER_LEADER_EMAIL = email
     graphs.CL_NORM = graphs.normalize_name(cl)
     graphs.DATA_DIR = str(SYNC_ROOT / mes)
     graphs.FILES_DIR = graphs.DATA_DIR
@@ -180,6 +245,7 @@ def generar_cb(s=None, a=None, u=None):
         dpg.configure_item(TAG_SPINNER, show=False)
         return
 
+    # Copiar PPTX al folder del mes
     src, dst = ROOT_DIR / "outputs", SYNC_ROOT / mes / "outputs"
     dst.mkdir(exist_ok=True)
     pptxs = []
@@ -191,13 +257,18 @@ def generar_cb(s=None, a=None, u=None):
         set_error("⚠ No se encontró ningún .pptx para copiar")
         dpg.configure_item(TAG_SPINNER, show=False)
         return
-    pptxs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    ultimo = pptxs[0]
+    ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
 
-    # Éxito
+    save_config(cl, email)  # Éxito = guardar config
+
     dpg.configure_item(TAG_SPINNER, show=False)
     dpg.configure_item(TAG_BTN_OPEN_FOLDER, user_data=str(dst), show=True)
     dpg.configure_item(TAG_BTN_OPEN_PPTX, user_data=str(ultimo), show=True)
+
+    if dpg.is_item_shown(TAG_INPUT_CL):
+        hide_cred_inputs()
+        dpg.configure_item(TAG_BTN_EDIT, show=True)
+        dpg.set_item_label(TAG_BTN_EDIT, "Editar credenciales")
 
 
 # ────────── UI principal ──────────
@@ -219,21 +290,34 @@ def build_ui():
         dpg.add_text("Generación de PPT")
         dpg.add_separator()
 
-        dpg.add_text("Nombre del Chapter Leader:")
+        # Campos credenciales
+        dpg.add_text("Nombre del Chapter Leader:", tag="lbl_nombre")
         dpg.add_input_text(
             tag=TAG_INPUT_CL,
-            default_value=graphs.CHAPTER_LEADER,
+            default_value=CL_NAME,
+            hint=HINT_NAME,
             on_enter=True,
             width=-1,
         )
 
-        dpg.add_text("Correo del Chapter Leader:")  # Nuevo campo
+        dpg.add_text("Correo del Chapter Leader:", tag="lbl_correo")
         dpg.add_input_text(
             tag=TAG_INPUT_EMAIL,
-            default_value=graphs.CHAPTER_LEADER_EMAIL,
+            default_value=CL_EMAIL,
+            hint=HINT_EMAIL,
             on_enter=True,
             width=-1,
         )
+
+        # Botón editar / cancelar
+        dpg.add_button(
+            label="Editar credenciales",
+            tag=TAG_BTN_EDIT,
+            callback=on_edit_cb,
+            show=CFG_OK,
+        )
+        if CFG_OK:
+            hide_cred_inputs()
 
         dpg.add_checkbox(
             label="Usar carpeta para demo",
@@ -259,7 +343,6 @@ def build_ui():
             width=-1,
         )
 
-        # Botones abrir (hidden)
         dpg.add_button(
             label="Abrir carpeta",
             tag=TAG_BTN_OPEN_FOLDER,
@@ -273,9 +356,8 @@ def build_ui():
             callback=abrir_pptx_cb,
         )
 
-        # Spinner centrado
         with dpg.group(horizontal=True):
-            dpg.add_spacer(width=(WINDOW_W - 22) // 2)  # 22 ≈ diámetro del spinner
+            dpg.add_spacer(width=(WINDOW_W - 22) // 2)
             try:
                 dpg.add_loading_indicator(radius=11, tag=TAG_SPINNER, show=False)
             except AttributeError:

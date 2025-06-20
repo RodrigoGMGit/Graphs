@@ -201,3 +201,4 @@ marimo/_lsp/
 __marimo__/
 
 /outputs
+chapter_config.json
