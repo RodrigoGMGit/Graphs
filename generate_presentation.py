@@ -10,6 +10,8 @@
 import datetime as dt
 import io
 import os
+import sys
+from pathlib import Path
 from copy import deepcopy
 from typing import List, cast
 
@@ -21,8 +23,19 @@ from pptx.util import Emu, Inches
 import graphs
 
 # ───── rutas
-TEMPLATE_PATH = r".\inputs\Template.pptx"
-OUT_DIR = r".\outputs"
+# Cuando se ejecuta desde un ejecutable PyInstaller, los recursos se
+# descomprimen en ``sys._MEIPASS``. De lo contrario tomamos el directorio
+# actual del script.
+APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+# Plantilla de PowerPoint incluida en ``inputs/``
+TEMPLATE_PATH = str(APP_DIR / "inputs" / "Template.pptx")
+
+# Carpeta de salida junto al ejecutable (o al script durante el desarrollo)
+if getattr(sys, "frozen", False):
+    OUT_DIR = Path(sys.executable).resolve().parent / "outputs"
+else:
+    OUT_DIR = APP_DIR / "outputs"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
