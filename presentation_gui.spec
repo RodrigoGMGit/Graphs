@@ -41,7 +41,7 @@ exe = EXE(
     a.datas,
     [],
 
-    name='presentation_gui',
+    name='ChapterSync PPT Generator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
