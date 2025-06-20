@@ -54,10 +54,21 @@ HINT_EMAIL = "rplaz@bcp.com.pe"
 EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
 # ╔══════════════════ RUTAS ══════════════════════════════════════════╗
-ROOT_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT_DIR / "chapter_config.json"
-FILES_DIR_DEMO = ROOT_DIR / "files"  # carpeta fija del workspace
-PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
+# Cuando se ejecuta como binario PyInstaller, los recursos viven en
+# ``sys._MEIPASS`` y el ejecutable se ubica en ``sys.executable``.
+APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+# Directorio persistente donde guardar configuraciones y salidas
+EXEC_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+
+# Ruta para la configuración del usuario
+CONFIG_PATH = EXEC_DIR / "chapter_config.json"
+
+# Carpeta de archivos de ejemplo incluida en el paquete
+FILES_DIR_DEMO = APP_DIR / "files"  # carpeta fija del workspace
+
+# Script que se ejecuta dinámicamente para generar las diapositivas
+PRESENTATION_SCRIPT = APP_DIR / "generate_presentation.py"
 
 # ╔══════════════════ TAGS ═══════════════════════════════════════════╗
 (
@@ -204,7 +215,7 @@ def browse_dir_cb(*_):
 
         root = tk.Tk()
         root.withdraw()
-        path = filedialog.askdirectory(initialdir=str(ROOT_DIR))
+        path = filedialog.askdirectory(initialdir=str(EXEC_DIR))
         root.destroy()
         if path:
             dpg.set_value(TAG_INPUT_DIR, path)
@@ -305,7 +316,11 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
 
         runpy.run_path(str(PRESENTATION_SCRIPT))
 
-        src_dir = ROOT_DIR / "outputs"
+        # La ruta de salida depende de si la aplicación está congelada
+        if getattr(sys, "frozen", False):
+            src_dir = EXEC_DIR / "outputs"
+        else:
+            src_dir = APP_DIR / "outputs"
         pptxs = list(src_dir.glob("*.pptx"))
         if not pptxs:
             return False, "No se generó .pptx", None, None
