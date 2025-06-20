@@ -321,6 +321,7 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
             src_dir = EXEC_DIR / "outputs"
         else:
             src_dir = APP_DIR / "outputs"
+
         pptxs = list(src_dir.glob("*.pptx"))
         if not pptxs:
             return False, "No se generó .pptx", None, None
