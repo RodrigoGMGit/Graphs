@@ -202,4 +202,4 @@ __marimo__/
 
 /outputs
 chapter_config.json
-setup_cxfreeze.py
+setup.py
