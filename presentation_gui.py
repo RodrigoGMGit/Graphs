@@ -339,11 +339,11 @@ def _invoke(func, *args):
     if hasattr(dpg, "add_render_callback"):
         token = []
 
-        def _once():
+        def _once1():
             func(*args)
             dpg.delete_item(token[0])  # type: ignore[attr-defined]
 
-        token.append(dpg.add_render_callback(_once))  # type: ignore[attr-defined]
+        token.append(dpg.add_render_callback(_once1))  # type: ignore[attr-defined]
         return
 
     # 4  (≤0.8  y  2.0.x alpha/beta)
