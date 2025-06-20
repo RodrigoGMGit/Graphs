@@ -57,14 +57,10 @@ Permite configurar la información del Chapter Leader y exportar la presentació
 
 ```
 files/          # Libros de Excel de ejemplo
-cached_files/   # Caché Parquet generada automáticamente
+files/cached_files/   # Caché Parquet generada automáticamente
 inputs/         # Plantilla de la presentación
 outputs/        # Archivos PPTX resultantes (ignorados por git)
-ind_graphs/     # Scripts de graficado independientes
 ```
 
 El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
 
-## Licencia
-
-Licencia MIT.
