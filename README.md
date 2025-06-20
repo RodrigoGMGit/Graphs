@@ -19,7 +19,8 @@ Ejecute el script `build.sh` en la raíz del repositorio:
 ./build.sh
 ```
 
-El script instalará las dependencias y generará el ejecutable utilizando la especificación `presentation_gui.spec`, la cual ya está configurada para crear un único archivo ejecutable.
+El script instalará las dependencias y generará el ejecutable utilizando la especificación `presentation_gui.spec`.
+
 
 El ejecutable se ubicará en la carpeta `dist/`.
 

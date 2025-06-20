@@ -40,6 +40,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
+
     name='presentation_gui',
     debug=False,
     bootloader_ignore_signals=False,
@@ -47,3 +48,4 @@ exe = EXE(
     upx=True,
     console=True,
 )
+
