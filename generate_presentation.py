@@ -19,11 +19,14 @@ from pptx.slide import Slide
 from pptx.util import Emu, Inches
 
 import graphs
+from utils import make_dirs_if_missing
+
+assert graphs.PATHS_SET, "graphs.set_paths() must be called first"
 
 # ───── rutas
 TEMPLATE_PATH = r".\inputs\Template.pptx"
 OUT_DIR = r".\outputs"
-os.makedirs(OUT_DIR, exist_ok=True)
+make_dirs_if_missing(OUT_DIR)
 
 
 # ───── capturar figuras

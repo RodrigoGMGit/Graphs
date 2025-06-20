@@ -20,6 +20,7 @@ import argparse
 import os
 import re
 import unicodedata
+from pathlib import Path
 from typing import cast
 
 import matplotlib.patches as mpatches
@@ -30,11 +31,33 @@ import seaborn as sns
 from matplotlib import cm, colors
 
 # ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
+from settings import ROOT, DATA_ROOT
+from utils import make_dirs_if_missing
+
 CACHE_SUBDIR = "cached_files"
 
-FILES_DIR = DATA_DIR
+FILES_DIR = str((ROOT / "files").resolve())
 CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+PATHS_SET = False
+
+def set_paths(files_dir: str | Path, cache_dir: str | None = None) -> None:
+    """Define carpetas para Excel y caché."""
+    global FILES_DIR, CACHE_DIR, PATHS_SET
+    FILES_DIR = str(files_dir)
+    CACHE_DIR = str(cache_dir or Path(files_dir) / CACHE_SUBDIR)
+    PATHS_SET = True
+
+
+def verify_inputs(files_dir: str | Path) -> list[str]:
+    """Devuelve lista de nombres clave faltantes en ``files_dir``."""
+    global FILES_DIR
+    prev = FILES_DIR
+    FILES_DIR = str(files_dir)
+    missing = [
+        kw for kw in FILE_KEYWORDS.values() if _find_file_by_keyword(kw) is None
+    ]
+    FILES_DIR = prev
+    return missing
 
 # Palabras-clave -> método
 FILE_KEYWORDS = {
@@ -453,14 +476,12 @@ def parse_args():
 
 
 def main() -> None:
-    global DATA_DIR, FILES_DIR, CACHE_DIR
-
     a = parse_args()
     if a.root:
-        DATA_DIR = a.root
-        FILES_DIR = DATA_DIR
-        CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
-    os.makedirs(CACHE_DIR, exist_ok=True)
+        set_paths(a.root)
+    else:
+        set_paths(FILES_DIR)
+    make_dirs_if_missing(CACHE_DIR)
 
     tasks = [
         ("calidad", a.rev, plot_calidad_pases),

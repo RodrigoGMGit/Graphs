@@ -25,6 +25,8 @@ from typing import List, Tuple
 import dearpygui.dearpygui as dpg
 
 import graphs
+from settings import ROOT, DATA_ROOT, get_months
+from utils import make_dirs_if_missing
 
 # ╔══════════════════ CONFIG VISUAL  ═════════════════════════════════╗
 LEFT_PAD = 20  # margen interno izquierdo
@@ -56,15 +58,12 @@ HINT_EMAIL = "rplaz@bcp.com.pe"
 EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
 # ╔══════════════════ RUTAS  ═════════════════════════════════════════╗
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = ROOT
 CONFIG_PATH = ROOT_DIR / "chapter_config.json"
-SYNC_ROOT = (ROOT_DIR.parent / "ChapterSyncFiles" / "S00001").resolve()
-with suppress(Exception):
-    if not SYNC_ROOT.exists():
-        SYNC_ROOT = Path(graphs.DATA_DIR).resolve().parents[1]
-
 PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
-DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
+DEMO_FILES = ROOT_DIR / "files"
+DEMO_CACHE = ROOT_DIR / "cached_files"
+DEFAULT_MONTH_DIR = get_months()[0] if get_months() else ""
 
 # ╔══════════════════ TAGS  ══════════════════════════════════════════╗
 (
@@ -76,6 +75,7 @@ DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
     TAG_BTN_DEL,
     TAG_INPUT_CL,
     TAG_INPUT_EMAIL,
+    TAG_INPUT_DIR,
     TAG_BTN_CANCEL,
     TAG_INFO,
     TAG_CHK_DEFAULT,
@@ -94,6 +94,7 @@ DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
     "##btn_del",
     "##input_cl",
     "##input_email",
+    "##input_dir",
     "##btn_cancel",
     "##lbl_info",
     "##chk_default",
@@ -110,6 +111,7 @@ RESPONSIVE_TAGS = [
     TAG_COMBO_PROFILE,
     TAG_INPUT_CL,
     TAG_INPUT_EMAIL,
+    TAG_INPUT_DIR,
     TAG_BTN_CANCEL,
     TAG_COMBO_MONTH,
     TAG_BTN_GENERAR,
@@ -126,6 +128,7 @@ EMAIL_RE = re.compile(r"^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$")
 class Profile:
     name: str
     email: str
+    data_dir: str = ""
     validated: bool = False
 
 
@@ -176,13 +179,8 @@ def set_status(msg: str, err=False):
 
 
 # ╔══════════════════ UTILIDADES  ════════════════════════════════════╗
-def listar_meses() -> List[str]:
-    if not SYNC_ROOT.exists():
-        return []
-    pat = re.compile(r"^20\d{2} [01]\d$")
-    return sorted(
-        p.name for p in SYNC_ROOT.iterdir() if p.is_dir() and pat.match(p.name)
-    )
+def listar_meses(root: str | None = None) -> List[str]:
+    return get_months(root)
 
 
 def abrir_explorador(p: Path):
@@ -225,16 +223,23 @@ def on_profile_selected(_, sel, __):
         ACTIVE_EMAIL = p.email
         hide_inputs()
         set_status(f"Perfil activo: {sel}")
+        dpg.set_value(TAG_CHK_DEFAULT, not bool(p.data_dir))
+        dpg.configure_item(TAG_COMBO_MONTH, show=bool(p.data_dir))
+        if p.data_dir:
+            dpg.configure_item(TAG_COMBO_MONTH, items=get_months(p.data_dir))
 
 
-def show_inputs(name="", email=""):
+def show_inputs(name="", email="", data_dir=""):
     dpg.set_value(TAG_INPUT_CL, name)
     dpg.set_value(TAG_INPUT_EMAIL, email)
+    dpg.set_value(TAG_INPUT_DIR, data_dir)
     for t in (
         "lbl_nombre",
         TAG_INPUT_CL,
         "lbl_correo",
         TAG_INPUT_EMAIL,
+        "lbl_ruta",
+        TAG_INPUT_DIR,
         TAG_BTN_CANCEL,
         TAG_INFO,
     ):
@@ -247,15 +252,17 @@ def hide_inputs():
         TAG_INPUT_CL,
         "lbl_correo",
         TAG_INPUT_EMAIL,
+        "lbl_ruta",
+        TAG_INPUT_DIR,
         TAG_BTN_CANCEL,
         TAG_INFO,
     ):
         dpg.hide_item(t)
 
 
-def current_name_email() -> Tuple[str, str]:
+def current_profile_data() -> Tuple[str, str, str]:
     p = prof_by_email(ACTIVE_EMAIL)
-    return (p.name, p.email) if p else ("", "")
+    return (p.name, p.email, p.data_dir) if p else ("", "", "")
 
 
 # ── CRUD botones perfil ─────────────────────────────────────────────
@@ -270,7 +277,7 @@ def on_edit(*_):
     if not ACTIVE_EMAIL:
         return
     EDIT_MODE = "edit"
-    show_inputs(*current_name_email())
+    show_inputs(*current_profile_data())
 
 
 def on_del(*_):
@@ -292,23 +299,33 @@ def on_cancel(*_):
 
 
 # ╔══════════════════ GENERACIÓN PPT  (hilo)  ════════════════════════╗
-def _gen_ppt(cl, email, mes):
+def _gen_ppt(cl: str, email: str, mes: str, data_root: str, demo: bool):
     try:
         graphs.CHAPTER_LEADER, graphs.CHAPTER_LEADER_EMAIL = cl, email
         graphs.CL_NORM = graphs.normalize_name(cl)
-        graphs.DATA_DIR = str(SYNC_ROOT / mes)
-        graphs.FILES_DIR = graphs.DATA_DIR
-        graphs.CACHE_DIR = os.path.join(graphs.FILES_DIR, graphs.CACHE_SUBDIR)
+        if demo:
+            files_dir = DEMO_FILES
+            cache_dir = DEMO_CACHE
+            out_dir = ROOT_DIR / "outputs"
+        else:
+            base = Path(data_root) / mes
+            files_dir = base
+            cache_dir = base / graphs.CACHE_SUBDIR
+            out_dir = base / "outputs"
+        graphs.set_paths(files_dir, cache_dir)
+        make_dirs_if_missing(cache_dir, out_dir)
 
         runpy.run_path(str(PRESENTATION_SCRIPT))
-        dst = SYNC_ROOT / mes / "outputs"
-        dst.mkdir(exist_ok=True)
+
         src = ROOT_DIR / "outputs"
-        pptxs = [Path(shutil.copy2(p, dst / p.name)) for p in src.glob("*.pptx")]
+        if demo:
+            pptxs = list(src.glob("*.pptx"))
+        else:
+            pptxs = [Path(shutil.copy2(p, out_dir / p.name)) for p in src.glob("*.pptx")]
         if not pptxs:
             return False, "No se generó .pptx", None, None
         ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
-        return True, "Presentación generada.", str(dst), str(ultimo)
+        return True, "Presentación generada.", str(out_dir), str(ultimo)
     except Exception as exc:
         return False, f"Error: {exc}", None, None
 
@@ -367,19 +384,18 @@ def generar_cb(*_):
     set_status("")
     dpg.configure_item(TAG_SPINNER, show=True)
 
-    cl, email = (
-        (dpg.get_value(TAG_INPUT_CL).strip(), dpg.get_value(TAG_INPUT_EMAIL).strip())
+    cl, email, data_dir = (
+        (
+            dpg.get_value(TAG_INPUT_CL).strip(),
+            dpg.get_value(TAG_INPUT_EMAIL).strip(),
+            dpg.get_value(TAG_INPUT_DIR).strip(),
+        )
         if dpg.is_item_shown(TAG_INPUT_CL)
-        else current_name_email()
+        else current_profile_data()
     )
-    mes = (
-        DEFAULT_MONTH_DIR
-        if dpg.get_value(TAG_CHK_DEFAULT)
-        else dpg.get_value(TAG_COMBO_MONTH)
-    )
+    demo = dpg.get_value(TAG_CHK_DEFAULT)
+    mes = DEFAULT_MONTH_DIR if demo else dpg.get_value(TAG_COMBO_MONTH)
 
-    if not SYNC_ROOT.exists():
-        return _err(f"Ruta no encontrada: {SYNC_ROOT}")
     if not cl:
         return _err("Nombre vacío")
     if not EMAIL_RE.fullmatch(email):
@@ -387,11 +403,18 @@ def generar_cb(*_):
     if not mes:
         return _err("Mes no seleccionado")
 
-    future = EXECUTOR.submit(_gen_ppt, cl, email, mes)
-    future.add_done_callback(lambda fut: _invoke(on_done, fut, cl, email))
+    if not demo and not Path(data_dir).is_dir():
+        return _err(f"Ruta no encontrada: {data_dir}")
+
+    files_dir = DEMO_FILES if demo else Path(data_dir) / mes
+    missing = graphs.verify_inputs(files_dir)
+    if missing:
+        return _err("Faltan archivos: " + ", ".join(missing))
+    future = EXECUTOR.submit(_gen_ppt, cl, email, mes, data_dir, demo)
+    future.add_done_callback(lambda fut: _invoke(on_done, fut, cl, email, data_dir))
 
 
-def on_done(fut, cl, email):
+def on_done(fut, cl, email, data_dir):
     ok, msg, dst, ppt = fut.result()
     dpg.configure_item(TAG_SPINNER, show=False)
     if not ok:
@@ -399,11 +422,11 @@ def on_done(fut, cl, email):
 
     global EDIT_MODE, ACTIVE_EMAIL
     if EDIT_MODE == "new":
-        PROFILES.append(Profile(cl, email, True))
+        PROFILES.append(Profile(cl, email, data_dir, True))
         ACTIVE_EMAIL = email
     elif EDIT_MODE == "edit":
         if p := prof_by_email(ACTIVE_EMAIL):
-            p.name, p.email, p.validated = cl, email, True
+            p.name, p.email, p.data_dir, p.validated = cl, email, data_dir, True
             ACTIVE_EMAIL = email
     else:
         if p := prof_by_email(email):
@@ -507,6 +530,8 @@ def build_ui():
         dpg.add_input_text(tag=TAG_INPUT_CL, hint=HINT_NAME, show=False)
         dpg.add_text("Correo del Chapter Leader:", tag="lbl_correo", show=False)
         dpg.add_input_text(tag=TAG_INPUT_EMAIL, hint=HINT_EMAIL, show=False)
+        dpg.add_text("Ruta de datos:", tag="lbl_ruta", show=False)
+        dpg.add_input_text(tag=TAG_INPUT_DIR, hint=str(DATA_ROOT), show=False)
 
         dpg.add_text(
             "Los cambios se guardarán automáticamente\ncuando la presentación se genere correctamente.",
@@ -523,13 +548,21 @@ def build_ui():
             label="Usar carpeta para demo",
             default_value=True,
             tag=TAG_CHK_DEFAULT,
-            callback=lambda s, c, u: dpg.configure_item(TAG_COMBO_MONTH, show=not c),
+            callback=lambda s, c, u: (
+                dpg.configure_item(TAG_COMBO_MONTH, show=not c),
+                dpg.configure_item(
+                    TAG_COMBO_MONTH,
+                    items=listar_meses(current_profile_data()[2]),
+                )
+                if not c
+                else None,
+            ),
         )
         dpg.add_combo(
-            listar_meses(),
+            listar_meses(DATA_ROOT),
             label="Selecciona mes",
             default_value=DEFAULT_MONTH_DIR
-            if DEFAULT_MONTH_DIR in listar_meses()
+            if DEFAULT_MONTH_DIR in listar_meses(DATA_ROOT)
             else "",
             tag=TAG_COMBO_MONTH,
             show=False,
