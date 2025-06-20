@@ -45,8 +45,8 @@ FILE_KEYWORDS = {
 }
 
 # ───────────── CONFIG RESTO ─────────────
-CHAPTER_LEADER = "ANTHONY JAESSON ROJAS MUNARES"
-CHAPTER_LEADER_EMAIL = ""  # Nueva variable para el correo electrónico
+CHAPTER_LEADER = "RENE RUBEN PLAZ CABRERA"
+CHAPTER_LEADER_EMAIL = "rplaz@bcp.com.pe"  # Correo electrónico del Chapter Leader
 TMD_THRESHOLD = 13  # días
 
 sns.set_theme(style="whitegrid", context="notebook")
@@ -91,6 +91,24 @@ CL_NORM = normalize_name(CHAPTER_LEADER)
 
 def norm_series(s: pd.Series) -> pd.Series:
     return s.fillna("").map(normalize_name)
+
+
+# ─── Filtro unificado por Chapter Leader ──────────────────────────────
+def _filter_by_chapter_leader(df: pd.DataFrame, col_name: str) -> pd.DataFrame:
+    """Primero filtra por nombre; si no hay filas y hay correo, prueba por correo."""
+    if col_name not in df.columns:
+        return df.iloc[0:0]
+
+    by_name = df[norm_series(df[col_name]) == CL_NORM]
+    if not by_name.empty or not CHAPTER_LEADER_EMAIL:
+        return by_name
+
+    email = CHAPTER_LEADER_EMAIL.strip()
+    if not email:
+        return by_name
+
+    email_mask = df[col_name].fillna("").str.contains(email, case=False, na=False)
+    return df[email_mask]
 
 
 # ─── Búsqueda automática de archivos ──────────────────────────────────
@@ -148,8 +166,8 @@ def plot_calidad_pases(file_path: str) -> None:
         pases = dfall[dfall["Tipo"] == "Pase a Producción"].copy()
         revs = dfall[dfall["Tipo"] == "Reversión"].copy()
 
-    pases = pases[norm_series(pases["Chapter leader"]) == CL_NORM]
-    revs = revs[norm_series(revs["Chapter leader"]) == CL_NORM]
+    pases = _filter_by_chapter_leader(pases, "Chapter leader")
+    revs = _filter_by_chapter_leader(revs, "Chapter leader")
     if pases.empty and revs.empty:
         return _warn("Sin datos de Calidad.")
 
@@ -227,7 +245,7 @@ def plot_calidad_pases(file_path: str) -> None:
 # ───────────── 2 · DEDICACIÓN ─────────────
 def plot_dedicacion_tm(file_path: str) -> None:
     df = read_any(file_path)
-    df = df[norm_series(df["Nombre CL"]) == CL_NORM]
+    df = _filter_by_chapter_leader(df, "Nombre CL")
     if df.empty:
         return _warn("Sin dedicación para CL.")
 
@@ -254,7 +272,7 @@ def plot_dedicacion_tm(file_path: str) -> None:
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
 def plot_niveles_madurez(file_path: str) -> None:
     df = read_any(file_path)
-    df = df[norm_series(df["Chapter Leader"]) == CL_NORM]
+    df = _filter_by_chapter_leader(df, "Chapter Leader")
     if df.empty:
         return _warn("Sin registros LEP para CL.")
 
@@ -369,7 +387,7 @@ def plot_tiempo_desarrollo(file_path: str) -> None:
     if cl_col is None:
         return _warn("No se encontró columna de Chapter Leader en TMD.")
 
-    df = df[norm_series(df[cl_col]) == CL_NORM]
+    df = _filter_by_chapter_leader(df, cl_col)
     if df.empty:
         return _warn("Sin datos de TMD para CL.")
 
