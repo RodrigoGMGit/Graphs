@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# presentation_gui.py – v2.4.5  (18 Jun 2025)
+# presentation_gui.py – v2.4.6  (19 Jun 2025)
 # ---------------------------------------------------------------------------
 # Interfaz DearPyGui para generar presentaciones de Chapter Leaders (ChapterSync)
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ if not SYNC_ROOT.exists():
 PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
 DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name  # ‘2025 05’
 
-WINDOW_W, WINDOW_H = 560, 470
+WINDOW_W, WINDOW_H = 560, 500  # Aumentar altura para acomodar nuevo campo
 FONT_SIZE, HEADER_FONT_SIZE = 17, 24
 
 COLOR_BG = (30, 35, 45, 255)
@@ -41,8 +41,9 @@ COLOR_BTN_HOV = (52, 152, 219, 255)
 COLOR_ERR = (231, 76, 60, 255)
 
 # Tags
-TAG_INPUT_CL, TAG_CHK_DEFAULT, TAG_COMBO_MONTH = (
+TAG_INPUT_CL, TAG_INPUT_EMAIL, TAG_CHK_DEFAULT, TAG_COMBO_MONTH = (
     "##input_cl",
+    "##input_email",  # Nuevo tag para el correo
     "##chk_default",
     "##combo_month",
 )
@@ -113,6 +114,15 @@ def set_error(msg: str):
     dpg.configure_item(TAG_LBL_STATUS, default_value=msg, color=COLOR_ERR)
 
 
+# ────────── Validación de correo ──────────
+def validate_email(email: str) -> bool:
+    """Valida que el correo tenga un formato básico (contiene @ y dominio)."""
+    email = email.strip()
+    if not email:
+        return False
+    return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
+
+
 # ────────── Callbacks ──────────
 def abrir_carpeta_cb(s, a, u):
     abrir_explorador(Path(u))
@@ -128,6 +138,7 @@ def toggle_combo_cb(s, a, u):
 
 def generar_cb(s=None, a=None, u=None):
     cl = dpg.get_value(TAG_INPUT_CL).strip()
+    email = dpg.get_value(TAG_INPUT_EMAIL).strip()
     useD = dpg.get_value(TAG_CHK_DEFAULT)
     mes = DEFAULT_MONTH_DIR if useD else dpg.get_value(TAG_COMBO_MONTH)
 
@@ -146,12 +157,17 @@ def generar_cb(s=None, a=None, u=None):
         set_error("⚠ Ingresa el nombre del Chapter Leader")
         dpg.configure_item(TAG_SPINNER, show=False)
         return
+    if not validate_email(email):
+        set_error("⚠ Ingresa un correo electrónico válido")
+        dpg.configure_item(TAG_SPINNER, show=False)
+        return
     if not mes:
         set_error("⚠ Selecciona un mes válido")
         dpg.configure_item(TAG_SPINNER, show=False)
         return
 
     graphs.CHAPTER_LEADER = cl
+    graphs.CHAPTER_LEADER_EMAIL = email  # Pasar el correo a graphs.py
     graphs.CL_NORM = graphs.normalize_name(cl)
     graphs.DATA_DIR = str(SYNC_ROOT / mes)
     graphs.FILES_DIR = graphs.DATA_DIR
@@ -207,6 +223,14 @@ def build_ui():
         dpg.add_input_text(
             tag=TAG_INPUT_CL,
             default_value=graphs.CHAPTER_LEADER,
+            on_enter=True,
+            width=-1,
+        )
+
+        dpg.add_text("Correo del Chapter Leader:")  # Nuevo campo
+        dpg.add_input_text(
+            tag=TAG_INPUT_EMAIL,
+            default_value=graphs.CHAPTER_LEADER_EMAIL,
             on_enter=True,
             width=-1,
         )

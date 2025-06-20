@@ -46,6 +46,7 @@ FILE_KEYWORDS = {
 
 # ───────────── CONFIG RESTO ─────────────
 CHAPTER_LEADER = "ANTHONY JAESSON ROJAS MUNARES"
+CHAPTER_LEADER_EMAIL = ""  # Nueva variable para el correo electrónico
 TMD_THRESHOLD = 13  # días
 
 sns.set_theme(style="whitegrid", context="notebook")
