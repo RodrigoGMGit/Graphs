@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# presentation_gui.py – v3.1.2  (19 Jun 2025)
+# presentation_gui.py – v3.1.3  (19 Jun 2025)
 # ---------------------------------------------------------------------------
 # GUI ChapterSync – Perfiles, placeholders, panel de log coloreado
+# Spinner reubicado a la esquina superior derecha (radio 8 px)
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -34,6 +35,9 @@ PRESENTATION_SCRIPT = ROOT_DIR / "generate_presentation.py"
 DEFAULT_MONTH_DIR = Path(graphs.DATA_DIR).name
 
 WINDOW_W, WINDOW_H = 560, 620  # +altura para log
+SPINNER_RADIUS = 8  # radio reducido
+SPINNER_DIAM = SPINNER_RADIUS * 2 + 2  # diámetro aproximado
+
 FONT_SIZE, HEADER_FONT_SIZE = 17, 24
 
 COLOR_BG = (30, 35, 45, 255)
@@ -123,10 +127,8 @@ def get_profile_by_email(email: str) -> dict | None:
 
 # ╔════════════════════  LOG helpers  ═════════════════════════════════╗
 def log_message(msg: str, level: str = "info") -> None:
-    """Añade una línea coloreada al panel y recorta a 1000 líneas."""
     color = {"error": COLOR_ERR, "warn": COLOR_WARN}.get(level, COLOR_INFO)
     dpg.add_text(msg, parent=TAG_LOG_CHILD, color=color)
-
     children: List[int] = dpg.get_item_children(TAG_LOG_CHILD, 1) or []
     if len(children) > 1000:
         dpg.delete_item(children[0])
@@ -138,7 +140,6 @@ def clear_log() -> None:
         dpg.delete_item(cid)
 
 
-# Parchear graphs._warn para que escriba en el log
 def _patch_graphs_warn() -> None:
     def _gui_warn(msg: str) -> None:  # type: ignore[override]
         log_message(msg, "warn")
@@ -323,14 +324,13 @@ def abrir_pptx_cb(sender, a, u) -> None:
 def generar_cb(*_) -> None:
     global PROFILES, ACTIVE_EMAIL, EDIT_MODE
 
-    clear_log()  # limpiar log al inicio
+    clear_log()  # limpiar log
 
-    # Nombre y correo según modo
-    if dpg.is_item_shown(TAG_INPUT_CL):
-        cl = dpg.get_value(TAG_INPUT_CL).strip()
-        email = dpg.get_value(TAG_INPUT_EMAIL).strip()
-    else:
-        cl, email = current_name_email()
+    cl, email = (
+        (dpg.get_value(TAG_INPUT_CL).strip(), dpg.get_value(TAG_INPUT_EMAIL).strip())
+        if dpg.is_item_shown(TAG_INPUT_CL)
+        else current_name_email()
+    )
 
     mes = (
         DEFAULT_MONTH_DIR
@@ -343,7 +343,6 @@ def generar_cb(*_) -> None:
     set_status("")
     dpg.configure_item(TAG_SPINNER, show=True)
 
-    # Validaciones
     if not SYNC_ROOT.exists():
         return _finish_with_error(f"Ruta raíz no encontrada: {SYNC_ROOT}")
     if not cl:
@@ -367,7 +366,6 @@ def generar_cb(*_) -> None:
     except Exception as exc:
         return _finish_with_error(f"Error al generar PPT: {exc}")
 
-    # Copiar PPTX
     src = ROOT_DIR / "outputs"
     dst = SYNC_ROOT / mes / "outputs"
     dst.mkdir(exist_ok=True)
@@ -379,7 +377,6 @@ def generar_cb(*_) -> None:
 
     ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
 
-    # Actualizar perfiles
     if EDIT_MODE == "new":
         PROFILES.append({"name": cl, "email": email, "validated": True})
         ACTIVE_EMAIL = email
@@ -422,6 +419,24 @@ def build_ui() -> None:
         no_resize=True,
         no_collapse=True,
     ):
+        # Spinner anclado (antes que nada para que quede sobre todo)
+        try:
+            dpg.add_loading_indicator(
+                radius=SPINNER_RADIUS,
+                tag=TAG_SPINNER,
+                show=False,
+                pos=(WINDOW_W - SPINNER_DIAM - 10, 10),
+            )
+        except AttributeError:
+            dpg.add_progress_bar(
+                width=SPINNER_DIAM,
+                default_value=0.5,
+                overlay="",
+                tag=TAG_SPINNER,
+                show=False,
+                pos=(WINDOW_W - SPINNER_DIAM - 10, 10),
+            )
+
         dpg.add_spacer(height=6)
         title = dpg.add_text("ChapterSync", color=COLOR_HEADER)
         if header:
@@ -441,7 +456,7 @@ def build_ui() -> None:
                 label="Eliminar", tag=TAG_BTN_DEL, callback=on_delete_profile
             )
 
-        # Inputs de perfil (ocultos inicialmente)
+        # Inputs (ocultos)
         dpg.add_text("Nombre del Chapter Leader:", tag="lbl_nombre", show=False)
         dpg.add_input_text(tag=TAG_INPUT_CL, hint=HINT_NAME, width=-1, show=False)
         dpg.add_text("Correo del Chapter Leader:", tag="lbl_correo", show=False)
@@ -496,19 +511,9 @@ def build_ui() -> None:
             callback=abrir_pptx_cb,
         )
 
-        # Spinner
-        with dpg.group(horizontal=True):
-            dpg.add_spacer(width=(WINDOW_W - 22) // 2)
-            try:
-                dpg.add_loading_indicator(radius=11, tag=TAG_SPINNER, show=False)
-            except AttributeError:
-                dpg.add_progress_bar(
-                    width=22, default_value=0.5, overlay="", tag=TAG_SPINNER, show=False
-                )
-
         dpg.add_text("", tag=TAG_LBL_STATUS)
 
-        # Panel de LOG
+        # Panel LOG
         dpg.add_separator()
         dpg.add_text("Registro de mensajes:")
         dpg.add_child_window(
