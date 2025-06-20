@@ -305,7 +305,11 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
 
         runpy.run_path(str(PRESENTATION_SCRIPT))
 
-        src_dir = ROOT_DIR / "outputs"
+        # La ruta de salida depende de si la aplicación está congelada
+        if getattr(sys, "frozen", False):
+            src_dir = Path(sys.executable).resolve().parent / "outputs"
+        else:
+            src_dir = ROOT_DIR / "outputs"
         pptxs = list(src_dir.glob("*.pptx"))
         if not pptxs:
             return False, "No se generó .pptx", None, None

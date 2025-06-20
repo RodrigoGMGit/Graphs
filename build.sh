@@ -9,5 +9,6 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 
 # Ejecuta PyInstaller usando la spec incluida
-pyinstaller --onefile presentation_gui.spec
+
+pyinstaller presentation_gui.spec
 
