@@ -21,6 +21,7 @@ import os
 import re
 import unicodedata
 from typing import cast
+import logging
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -29,13 +30,15 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import cm, colors
 
-# ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r".\files"
-# DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
-CACHE_SUBDIR = "cached_files"
+from .config import config
 
-FILES_DIR = DATA_DIR
-CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+logger = logging.getLogger(__name__)
+
+# ───────────── RUTAS BASE ─────────────
+DATA_DIR = config.data_dir
+CACHE_SUBDIR = config.cache_subdir
+FILES_DIR = config.files_dir
+CACHE_DIR = config.cache_dir
 
 # Palabras-clave -> método
 FILE_KEYWORDS = {
@@ -46,9 +49,9 @@ FILE_KEYWORDS = {
 }
 
 # ───────────── CONFIG RESTO ─────────────
-CHAPTER_LEADER = "RENE RUBEN PLAZ CABRERA"
-CHAPTER_LEADER_EMAIL = "rplaz@bcp.com.pe"  # Correo electrónico del Chapter Leader
-TMD_THRESHOLD = 13  # días
+CHAPTER_LEADER = config.chapter_leader
+CHAPTER_LEADER_EMAIL = config.chapter_leader_email
+TMD_THRESHOLD = config.tmd_threshold
 
 sns.set_theme(style="whitegrid", context="notebook")
 
@@ -70,7 +73,7 @@ MONTH_CAT = pd.CategoricalDtype(categories=MONTHS_ES, ordered=True)
 
 
 def _warn(msg: str) -> None:
-    print(f"⚠️  {msg}")
+    logger.warning(msg)
 
 
 # ─── Normalización genérica ───────────────────────────────────────────
@@ -419,7 +422,7 @@ def plot_tiempo_desarrollo(file_path: str) -> None:
 
 
 # ───────────── CLI (opcional) ─────────────
-def parse_args():
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
     p.add_argument(
@@ -450,13 +453,13 @@ def parse_args():
         default=None,
         help="Generar gráfico de tiempo. Si no se especifica archivo, se busca automáticamente.",
     )
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     global DATA_DIR, FILES_DIR, CACHE_DIR
 
-    a = parse_args()
+    a = parse_args(argv)
     if a.root:
         DATA_DIR = a.root
         FILES_DIR = DATA_DIR
