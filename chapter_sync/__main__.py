@@ -1,11 +1,14 @@
 import argparse
 import logging
-from . import graphs, presentation, gui
+
+from . import graphs, gui, presentation
 
 
 def main(argv=None):
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(prog="chaptersync", description="ChapterSync tools")
+    parser = argparse.ArgumentParser(
+        prog="chaptersync", description="ChapterSync tools"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_graphs = sub.add_parser("graphs", help="Generate graphs")

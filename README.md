@@ -11,7 +11,6 @@ Este sistema automatiza la generación de presentaciones (PPTX) con métricas de
   - Tiempo de desarrollo (TMD)
 - **chapter_sync.presentation** – compila las gráficas anteriores en un PPTX usando una plantilla.
 - **chapter_sync.gui** – interfaz basada en Dear PyGUI que automatiza todo el proceso.
-- **ind_graphs/** – ejemplos independientes con rutas fijas.
 
 ## Instalación
 

@@ -19,3 +19,6 @@ dependencies = [
 
 [project.scripts]
 chaptersync = "chapter_sync.__main__:main"
+
+[tool.setuptools]
+packages = ["chapter_sync"]  # Correct placement for package discovery
