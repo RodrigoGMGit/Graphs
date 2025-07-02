@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Tuple
+import traceback
 
 import dearpygui.dearpygui as dpg
 
@@ -335,7 +336,16 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
         ultimo = max(pptxs, key=lambda p: p.stat().st_mtime)
         return True, "Presentación generada.", str(src_dir), str(ultimo)
     except Exception as exc:
-        return False, f"Error: {exc}", None, None
+        tb = traceback.extract_tb(exc.__traceback__)
+        if tb:
+            last = tb[-1]
+            mod = Path(last.filename).stem
+            fn = last.name
+            err = f"Error en {mod}.{fn}: {exc}"
+        else:
+            err = f"Error: {exc}"
+        log_message(traceback.format_exc(), "error")
+        return False, err, None, None
 
 
 # ─── util cross-thread → hilo GUI ────────────────────────────────────
