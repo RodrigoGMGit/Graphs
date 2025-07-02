@@ -4,9 +4,8 @@ block_cipher = None
 
 
 added_files = [
-    ('files', 'files'),
-    ('inputs/Template.pptx', 'inputs'),
-    ('generate_presentation.py', '.')
+    ('chapter_sync/files', 'chapter_sync/files'),
+    ('chapter_sync/inputs/Template.pptx', 'chapter_sync/inputs'),
 ]
 
 hidden = [
@@ -22,7 +21,7 @@ hidden = [
 
 
 a = Analysis(
-    ['presentation_gui.py'],
+    ['chapter_sync/gui.py'],
     pathex=['.'],
     binaries=[],
     datas=added_files,
