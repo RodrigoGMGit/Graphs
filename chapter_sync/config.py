@@ -9,8 +9,10 @@ from dataclasses import dataclass
 class AppConfig:
     data_dir: str = "./chapter_sync/files"
     cache_subdir: str = "cached_files"
-    chapter_leader: str = "RENE RUBEN PLAZ CABRERA"
-    chapter_leader_email: str = "rplaz@bcp.com.pe"
+    # chapter_leader: str = "RENE RUBEN PLAZ CABRERA"
+    # chapter_leader_email: str = "rplaz@bcp.com.pe"
+    chapter_leader: str = "Cesar Augusto Baldeón Ramirez"
+    chapter_leader_email: str = "cesarbaldeon@bcp.com.pe"
     tmd_threshold: int = 13
 
     def load(self, path: str | None = None) -> None:
