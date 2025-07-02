@@ -22,6 +22,7 @@ import os
 import re
 import unicodedata
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -72,6 +73,22 @@ MONTH_CAT = pd.CategoricalDtype(categories=MONTHS_ES, ordered=True)
 
 def _warn(msg: str) -> None:
     logger.warning(msg)
+
+
+def _maybe_show() -> None:
+    """Show the current figure unless running on a non-interactive backend.
+
+    When the backend is "Agg" (used during tests), calling ``plt.show()``
+    triggers a warning. This helper closes the figure instead. If ``plt.show``
+    has been patched (e.g. by ``presentation.capture``), the patched function
+    is executed so that image capture works as expected.
+    """
+    if plt.show.__module__ != "matplotlib.pyplot":
+        plt.show()
+    elif matplotlib.get_backend().lower() == "agg":
+        plt.close()
+    else:
+        plt.show()
 
 
 # ─── Normalización genérica ───────────────────────────────────────────
@@ -241,7 +258,7 @@ def plot_calidad_pases(file_path: str) -> None:
         max_y = int(max(d["passes"].max(), d["revs"].max())) + 1
         plt.yticks(range(0, max_y, 1))
         plt.tight_layout()
-        plt.show()
+        _maybe_show()
 
 
 # ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
@@ -292,7 +309,7 @@ def plot_dedicacion_tm(file_path: str) -> None:
         .sort_values()  # orden ascendente para barh
     )
     _plot_barh(avg_hrs, "Dedicación promedio por miembro de equipo", "h")
-    plt.show()  # ← primera imagen capturada
+    _maybe_show()  # ← primera imagen capturada
 
     # ── 2 · Duración subtareas (días) ──────────────────────────────
     if COL_DUR in df.columns:
@@ -302,7 +319,7 @@ def plot_dedicacion_tm(file_path: str) -> None:
             "Duración subtareas promedio por miembro de equipo",
             "días",
         )
-        plt.show()  # ← segunda imagen capturada
+        _maybe_show()  # ← segunda imagen capturada
     else:
         _warn(f"No se encontró la columna «{COL_DUR}» en el archivo.")
 
@@ -369,7 +386,7 @@ def plot_niveles_madurez(file_path: str) -> None:
 
     plt.legend(title="Métrica LEP", bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.tight_layout()
-    plt.show()
+    _maybe_show()
 
 
 # ───────────── 4 · TMD ─────────────
@@ -407,12 +424,19 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     vmin = min(TMD_THRESHOLD, max_val)
     vmax = max(TMD_THRESHOLD, max_val)
 
-    cmap = cm.get_cmap("RdYlGn_r")
+    cmap = matplotlib.colormaps.get_cmap("RdYlGn_r")
     norm = colors.Normalize(vmin=vmin, vmax=vmax)
     bar_colors = [cmap(norm(v)) for v in vals]
 
     plt.figure(figsize=(14, 6))
-    ax = sns.barplot(y=labels, x=vals, palette=bar_colors)
+    ax = sns.barplot(
+        y=labels,
+        x=vals,
+        hue=labels,
+        palette=bar_colors,
+        legend=False,
+        dodge=False,
+    )
 
     ax.set_title(title)
     ax.set_xlabel("Promedio de días")
@@ -444,7 +468,7 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     plt.colorbar(sm, ax=ax, orientation="vertical", label="Días (rojo = peor)")
 
     plt.tight_layout()
-    plt.show()
+    _maybe_show()
 
 
 def plot_tiempo_desarrollo(file_path: str) -> None:
