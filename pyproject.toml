@@ -25,3 +25,4 @@ packages = ["chapter_sync"]  # Correct placement for package discovery
 
 [project.optional-dependencies]
 build = ["pyinstaller"]
+dev = ["pytest", "pytest-xdist"]
