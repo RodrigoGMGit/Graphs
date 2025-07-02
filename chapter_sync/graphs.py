@@ -400,17 +400,17 @@ def _find_cl_column(df: pd.DataFrame) -> str | None:
 
 def _plot_tmd(series: pd.Series, title: str) -> None:
     """
-    Gráfico de barras horizontales con escala de color 'RdYlGn_r'.
+    Gráfico de barras horizontales con escala 'RdYlGn_r'.
 
-    • Mueve el límite X para que la línea del umbral sea visible incluso
-      cuando todos los valores son inferiores.
-    • Añade una anotación celebrando que todo el equipo está por debajo
-      del objetivo.
+    • Colorea cada barra individualmente según los días (> rojo, < verde).
+    • Mantiene visible la línea‐umbral TMD_THRESHOLD.
+    • Compatible con seaborn ≥ 0.14: se pasa hue= para evitar FutureWarning.
     """
     import matplotlib.pyplot as plt
+    import pandas as pd
     import seaborn as sns
 
-    # ── limpiar datos ────────────────────────────────────────────────
+    # ── limpiar datos ──────────────────────────────────────────────────
     series = series.dropna()
     if series.empty:
         logger.warning("Sin datos válidos para TMD.")
@@ -420,7 +420,7 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     labels = series.index.tolist()
     max_val = np.nanmax(vals)
 
-    # Normalización segura
+    # Normalización segura para la rampa de color
     vmin = min(TMD_THRESHOLD, max_val)
     vmax = max(TMD_THRESHOLD, max_val)
 
@@ -428,12 +428,17 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     norm = colors.Normalize(vmin=vmin, vmax=vmax)
     bar_colors = [cmap(norm(v)) for v in vals]
 
+    # DataFrame requerido para hue=
+    df_plot = pd.DataFrame({"Etiqueta": labels, "Valor": vals})
+
+    # ── plot ───────────────────────────────────────────────────────────
     plt.figure(figsize=(14, 6))
     ax = sns.barplot(
-        y=labels,
-        x=vals,
-        hue=labels,
-        palette=bar_colors,
+        data=df_plot,
+        y="Etiqueta",
+        x="Valor",
+        hue="Etiqueta",  # ← ahora hay hue
+        palette=dict(zip(labels, bar_colors)),  # colores por etiqueta
         legend=False,
         dodge=False,
     )
@@ -442,16 +447,16 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
     ax.set_xlabel("Promedio de días")
     ax.set_ylabel("")
 
-    # ── eje X: obligamos a que llegue al umbral ─────────────────────
+    # ── eje X llega siempre al umbral ─────────────────────────────────
     x_max_limit = max(max_val, TMD_THRESHOLD) + 1
     ax.set_xticks(np.arange(0, int(np.ceil(x_max_limit)) + 1, 1))
     ax.set_xlim(0, x_max_limit)
 
-    # Valores sobre cada barra
+    # valores sobre cada barra
     for p, v in zip(ax.patches, vals):
         ax.annotate(
             f"{v:.1f}",
-            (v, p.get_y() + p.get_height() / 2), # type: ignore
+            (v, p.get_y() + p.get_height() / 2),  # type: ignore
             ha="left",
             va="center",
             xytext=(3, 0),
@@ -459,10 +464,10 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
             fontsize=9,
         )
 
-    # Línea de umbral (siempre visible gracias al xlim anterior)
+    # línea de umbral
     ax.axvline(TMD_THRESHOLD, color="black", linestyle="--", linewidth=1)
 
-    # Barra de colores
+    # barra de colores
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     plt.colorbar(sm, ax=ax, orientation="vertical", label="Días (rojo = peor)")
