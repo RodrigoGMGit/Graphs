@@ -6,3 +6,4 @@ openpyxl
 pyarrow
 python-pptx
 dearpygui
+pyinstaller

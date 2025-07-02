@@ -64,3 +64,21 @@ outputs/        # Archivos PPTX resultantes (ignorados por git)
 
 El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
 
+## Generar ejecutable
+
+El repositorio incluye `presentation_gui.spec` para crear una versión ejecutable
+de la GUI usando PyInstaller. Instala primero la dependencia opcional:
+
+```bash
+pip install -e .[build]
+```
+
+Luego ejecuta:
+
+```bash
+pyinstaller presentation_gui.spec
+```
+
+El ejecutable se creará dentro de `dist/` junto con todos los archivos necesarios
+(directorio `chapter_sync/files` y la plantilla `chapter_sync/inputs/Template.pptx`).
+
