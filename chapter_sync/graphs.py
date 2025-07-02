@@ -17,11 +17,11 @@ Además:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import re
 import unicodedata
 from typing import cast
-import logging
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -30,7 +30,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import cm, colors
 
-from .config import config
+from chapter_sync.config import config
 
 logger = logging.getLogger(__name__)
 

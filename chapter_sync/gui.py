@@ -20,11 +20,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-from . import presentation
-
 import dearpygui.dearpygui as dpg
 
-from . import graphs
+from chapter_sync import graphs, presentation
 
 # ╔══════════════════ CONFIG VISUAL ══════════════════════════════════╗
 LEFT_PAD = 20

@@ -1,7 +1,7 @@
 import argparse
 import logging
 
-from . import graphs, gui, presentation
+from chapter_sync import graphs, gui, presentation
 
 
 def main(argv=None):

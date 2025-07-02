@@ -20,7 +20,7 @@ from pptx import Presentation
 from pptx.slide import Slide
 from pptx.util import Emu, Inches
 
-from . import graphs
+from chapter_sync import graphs
 
 # ───── rutas
 # Cuando se ejecuta desde un ejecutable PyInstaller, los recursos se

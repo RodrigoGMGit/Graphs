@@ -1,11 +1,13 @@
 from __future__ import annotations
-from dataclasses import dataclass
+
 import json
 import os
+from dataclasses import dataclass
+
 
 @dataclass
 class AppConfig:
-    data_dir: str = "./files"
+    data_dir: str = "./chapter_sync/files"
     cache_subdir: str = "cached_files"
     chapter_leader: str = "RENE RUBEN PLAZ CABRERA"
     chapter_leader_email: str = "rplaz@bcp.com.pe"
