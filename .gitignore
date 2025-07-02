@@ -202,4 +202,4 @@ __marimo__/
 
 ./dist
 chapter_config.json
-./chapter_sync/outputs
+chapter_sync/outputs/
