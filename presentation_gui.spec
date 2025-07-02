@@ -4,8 +4,8 @@ block_cipher = None
 
 
 added_files = [
-    ('chapter_sync/files', 'chapter_sync/files'),
-    ('chapter_sync/inputs/Template.pptx', 'chapter_sync/inputs'),
+    ('chapter_sync/files', 'files'),
+    ('chapter_sync/inputs/Template.pptx', 'inputs'),
 ]
 
 hidden = [
