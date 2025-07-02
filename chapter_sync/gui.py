@@ -441,7 +441,7 @@ def resize_cb(_, data):
         w, h = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
 
     usable_w = max(320, w - LEFT_PAD - RIGHT_PAD)
-    usable_h = max(300, h - 2 * VERT_PAD)
+    usable_h = max(300, h - 2 * VERT_PAD)  # noqa: F841
 
     dpg.configure_item(TAG_ROOT, width=w, height=h)
 

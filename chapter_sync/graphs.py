@@ -321,6 +321,8 @@ def plot_niveles_madurez(file_path: str) -> None:
 
     for p in ax.patches:
         w = p.get_width()  # type: ignore[attr-defined]
+        if not w:
+            continue
         ax.annotate(
             f"{w:.2f}",
             (w, p.get_y() + p.get_height() / 2),  # type: ignore[attr-defined]
