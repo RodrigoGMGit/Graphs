@@ -309,6 +309,10 @@ def on_cancel(*_):
 
 # ╔══════════════════ GENERACIÓN PPT  (hilo) ═════════════════════════╗
 def _gen_ppt(cl: str, email: str, data_dir: str):
+    # --- forzar backend no interactivo en el hilo secundario -------------
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
     try:
         # Actualizar configuración dinámica en graphs
         graphs.config.chapter_leader = cl
