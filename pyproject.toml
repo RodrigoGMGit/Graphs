@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chapter_sync"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "seaborn",
+    "openpyxl",
+    "pyarrow",
+    "python-pptx",
+    "dearpygui",
+]
+
+[project.scripts]
+chaptersync = "chapter_sync.__main__:main"
+
+[tool.setuptools]
+packages = ["chapter_sync"]  # Correct placement for package discovery
+
+[project.optional-dependencies]
+build = ["pyinstaller"]

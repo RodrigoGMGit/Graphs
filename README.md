@@ -4,32 +4,32 @@ Este sistema automatiza la generación de presentaciones (PPTX) con métricas de
 
 ## Funcionalidades
 
-- **graphs.py** – interfaz de línea de comandos que construye gráficas de:
+- **chapter_sync.graphs** – módulo de línea de comandos que construye gráficas de:
   - Calidad (pases vs. reversiones)
   - Dedicación del equipo
   - Niveles de madurez LEP
   - Tiempo de desarrollo (TMD)
-- **generate_presentation.py** – compila las gráficas anteriores en un PPTX usando una plantilla.
-- **presentation_gui.py** – interfaz basada en Dear PyGUI que automatiza todo el proceso.
-- **ind_graphs/** – ejemplos independientes con rutas fijas.
+- **chapter_sync.presentation** – compila las gráficas anteriores en un PPTX usando una plantilla.
+- **chapter_sync.gui** – interfaz basada en Dear PyGUI que automatiza todo el proceso.
 
 ## Instalación
 
 1. Instala Python 3.9 o superior.
 2. Instala las dependencias:
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 3. Coloca los archivos de Excel requeridos en `files/` o indica otra carpeta al ejecutar los scripts.
+4. Opcionalmente define la variable `CHAPTERSYNC_CONFIG` apuntando a un JSON con tu configuración (rutas y datos del Chapter Leader).
 
 ## Uso
 
 ### Línea de comandos
-Ejecuta `graphs.py` para generar gráficas específicas. Si no se indica un archivo, se busca en la ruta dada uno que contenga la palabra clave correspondiente.
+Usa la herramienta `chaptersync` para generar gráficas o presentaciones.
 
 Ejemplo:
 ```bash
-python graphs.py --root ./files --rev --dr --m --tmd
+chaptersync graphs --root ./files --rev --dr --m --tmd
 ```
 Argumentos:
 - `--rev [ARCHIVO]` – gráficas de calidad.
@@ -40,16 +40,16 @@ Argumentos:
 Las gráficas se muestran con Matplotlib.
 
 ### Crear una presentación
-Ejecuta `generate_presentation.py` para capturar todas las gráficas y añadirlas a `inputs/Template.pptx`. La presentación resultante se guarda en `outputs/`.
+Ejecuta `chaptersync ppt` para capturar todas las gráficas y añadirlas a `inputs/Template.pptx`. La presentación resultante se guarda en `outputs/`.
 
 ```bash
-python generate_presentation.py
+chaptersync ppt
 ```
 
 ### GUI
 Si prefieres una interfaz gráfica ejecuta:
 ```bash
-python presentation_gui.py
+chaptersync gui
 ```
 Permite configurar la información del Chapter Leader y exportar la presentación con un solo clic.
 
@@ -63,4 +63,22 @@ outputs/        # Archivos PPTX resultantes (ignorados por git)
 ```
 
 El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
+
+## Generar ejecutable
+
+El repositorio incluye `presentation_gui.spec` para crear una versión ejecutable
+de la GUI usando PyInstaller. Instala primero la dependencia opcional:
+
+```bash
+pip install -e .[build]
+```
+
+Luego ejecuta:
+
+```bash
+pyinstaller presentation_gui.spec
+```
+
+El ejecutable se creará dentro de `dist/` junto con todos los archivos necesarios
+(directorio `chapter_sync/files` y la plantilla `chapter_sync/inputs/Template.pptx`).
 

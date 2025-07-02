@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import runpy
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +22,7 @@ from typing import List, Tuple
 
 import dearpygui.dearpygui as dpg
 
-import graphs
+from chapter_sync import graphs, presentation
 
 # ╔══════════════════ CONFIG VISUAL ══════════════════════════════════╗
 LEFT_PAD = 20
@@ -69,8 +68,6 @@ CONFIG_PATH = EXEC_DIR / "chapter_config.json"
 # Carpeta de archivos de ejemplo incluida en el paquete
 FILES_DIR_DEMO = APP_DIR / "files"  # carpeta fija del workspace
 
-# Script que se ejecuta dinámicamente para generar las diapositivas
-PRESENTATION_SCRIPT = APP_DIR / "generate_presentation.py"
 
 # ╔══════════════════ TAGS ═══════════════════════════════════════════╗
 (
@@ -159,6 +156,7 @@ def save_config(active_email: str):
         json.dumps(
             {"active": active_email, "profiles": [asdict(p) for p in PROFILES]},
             indent=2,
+            ensure_ascii=False,
         ),
         "utf-8",
     )
@@ -312,14 +310,18 @@ def on_cancel(*_):
 # ╔══════════════════ GENERACIÓN PPT  (hilo) ═════════════════════════╗
 def _gen_ppt(cl: str, email: str, data_dir: str):
     try:
-        # Actualizar rutas dinámicas en graphs
-        graphs.CHAPTER_LEADER, graphs.CHAPTER_LEADER_EMAIL = cl, email
+        # Actualizar configuración dinámica en graphs
+        graphs.config.chapter_leader = cl
+        graphs.config.chapter_leader_email = email
+        graphs.CHAPTER_LEADER = cl
+        graphs.CHAPTER_LEADER_EMAIL = email
         graphs.CL_NORM = graphs.normalize_name(cl)
+        graphs.config.data_dir = data_dir
         graphs.DATA_DIR = data_dir
         graphs.FILES_DIR = data_dir
         graphs.CACHE_DIR = os.path.join(data_dir, graphs.CACHE_SUBDIR)
 
-        runpy.run_path(str(PRESENTATION_SCRIPT))
+        presentation.main()
 
         # La ruta de salida depende de si la aplicación está congelada
         if getattr(sys, "frozen", False):
@@ -440,7 +442,7 @@ def resize_cb(_, data):
         w, h = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
 
     usable_w = max(320, w - LEFT_PAD - RIGHT_PAD)
-    usable_h = max(300, h - 2 * VERT_PAD)
+    usable_h = max(300, h - 2 * VERT_PAD)  # noqa: F841
 
     dpg.configure_item(TAG_ROOT, width=w, height=h)
 
@@ -587,7 +589,7 @@ def build_ui():
 
 
 # ╔══════════════════ MAIN ═══════════════════════════════════════════╗
-if __name__ == "__main__":
+def main() -> None:
     dpg.create_context()
     build_ui()
     dpg.create_viewport(
@@ -601,3 +603,7 @@ if __name__ == "__main__":
     dpg.show_viewport()
     dpg.start_dearpygui()
     dpg.destroy_context()
+
+
+if __name__ == "__main__":
+    main()

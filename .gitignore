@@ -200,6 +200,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-/outputs
+./dist
 chapter_config.json
-setup.py
+./chapter_sync/outputs

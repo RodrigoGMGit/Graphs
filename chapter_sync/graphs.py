@@ -17,25 +17,26 @@ Además:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import re
 import unicodedata
-from typing import cast
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import cm, colors
 
-# ───────────── RUTAS BASE (editable) ─────────────
-DATA_DIR = r".\files"
-# DATA_DIR = r"C:\Users\ROD\Documents\Projects\BCP\ChapterSyncFiles\S00001\2025 05"
-CACHE_SUBDIR = "cached_files"
+from chapter_sync.config import config
 
-FILES_DIR = DATA_DIR
-CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
+logger = logging.getLogger(__name__)
+
+# ───────────── RUTAS BASE ─────────────
+DATA_DIR = config.data_dir
+CACHE_SUBDIR = config.cache_subdir
+FILES_DIR = config.files_dir
+CACHE_DIR = config.cache_dir
 
 # Palabras-clave -> método
 FILE_KEYWORDS = {
@@ -46,9 +47,9 @@ FILE_KEYWORDS = {
 }
 
 # ───────────── CONFIG RESTO ─────────────
-CHAPTER_LEADER = "RENE RUBEN PLAZ CABRERA"
-CHAPTER_LEADER_EMAIL = "rplaz@bcp.com.pe"  # Correo electrónico del Chapter Leader
-TMD_THRESHOLD = 13  # días
+CHAPTER_LEADER = config.chapter_leader
+CHAPTER_LEADER_EMAIL = config.chapter_leader_email
+TMD_THRESHOLD = config.tmd_threshold
 
 sns.set_theme(style="whitegrid", context="notebook")
 
@@ -70,7 +71,7 @@ MONTH_CAT = pd.CategoricalDtype(categories=MONTHS_ES, ordered=True)
 
 
 def _warn(msg: str) -> None:
-    print(f"⚠️  {msg}")
+    logger.warning(msg)
 
 
 # ─── Normalización genérica ───────────────────────────────────────────
@@ -243,31 +244,67 @@ def plot_calidad_pases(file_path: str) -> None:
         plt.show()
 
 
-# ───────────── 2 · DEDICACIÓN ─────────────
+# ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
 def plot_dedicacion_tm(file_path: str) -> None:
+    """
+    Genera DOS gráficos independientes (se muestran uno tras otro):
+
+    1. Promedio de **Dedicación** (horas) por miembro de equipo.
+    2. Promedio de **Duración subtareas Registradas** (días) por miembro de equipo,
+       siempre que exista la columna «Duración subtareas Registradas (días)».
+
+    Cada llamada a ``plt.show()`` produce una figura; el mecanismo `capture()`
+    del módulo *presentation.py* capturará ambas imágenes y las apilará en la
+    misma diapositiva (imitando el comportamiento de TMD).
+    """
     df = read_any(file_path)
     df = _filter_by_chapter_leader(df, "Nombre CL")
     if df.empty:
         return _warn("Sin dedicación para CL.")
 
-    avg = df.groupby("Nombres")["Dedicación"].mean().sort_values()
-    plt.figure(figsize=(10, 6))
-    plt.grid(axis="x", ls="--", alpha=0.4)
-    bars = plt.barh(avg.index.tolist(), avg.values.tolist(), color="seagreen")
-    for bar in bars:
-        rect = cast(mpatches.Rectangle, bar)
-        width = rect.get_width()  # type: ignore[attr-defined]
-        plt.text(
-            width + 0.03,
-            rect.get_y() + rect.get_height() / 2,  # type: ignore[attr-defined]
-            f"{width:.1f} h",
-            va="center",
-            fontsize=9,
+    COL_DED = "Dedicación"
+    COL_DUR = "Duración subtareas Registradas (días)"
+
+    def _plot_barh(series: pd.Series, title: str, unidad: str) -> None:
+        """Helper reutilizable para barras horizontales con etiquetas."""
+        plt.figure(figsize=(10, 6))
+        plt.grid(axis="x", ls="--", alpha=0.4)
+
+        bars = plt.barh(series.index.tolist(), series.values.tolist(), color="seagreen")
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(
+                width + 0.03,
+                bar.get_y() + bar.get_height() / 2,
+                f"{width:.1f} {unidad}",
+                va="center",
+                fontsize=9,
+            )
+
+        plt.xlabel(f"Promedio ({unidad})")
+        plt.title(title)
+        plt.tight_layout()
+
+    # ── 1 · Dedicación (horas) ─────────────────────────────────────
+    avg_hrs = (
+        df.groupby("Nombres")[COL_DED]
+        .mean()
+        .sort_values()  # orden ascendente para barh
+    )
+    _plot_barh(avg_hrs, "Dedicación promedio por miembro de equipo", "h")
+    plt.show()  # ← primera imagen capturada
+
+    # ── 2 · Duración subtareas (días) ──────────────────────────────
+    if COL_DUR in df.columns:
+        avg_days = df.groupby("Nombres")[COL_DUR].mean().sort_values()
+        _plot_barh(
+            avg_days,
+            "Duración subtareas promedio por miembro de equipo",
+            "días",
         )
-    plt.xlabel("Promedio de Dedicación (horas)")
-    plt.title("Dedicación promedio por miembro de equipo")
-    plt.tight_layout()
-    plt.show()
+        plt.show()  # ← segunda imagen capturada
+    else:
+        _warn(f"No se encontró la columna «{COL_DUR}» en el archivo.")
 
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
@@ -318,6 +355,8 @@ def plot_niveles_madurez(file_path: str) -> None:
 
     for p in ax.patches:
         w = p.get_width()  # type: ignore[attr-defined]
+        if not w:
+            continue
         ax.annotate(
             f"{w:.2f}",
             (w, p.get_y() + p.get_height() / 2),  # type: ignore[attr-defined]
@@ -419,7 +458,7 @@ def plot_tiempo_desarrollo(file_path: str) -> None:
 
 
 # ───────────── CLI (opcional) ─────────────
-def parse_args():
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Gráficos filtrados por Chapter Leader")
     p.add_argument("--root", help="Ruta base donde están los Excel", default=None)
     p.add_argument(
@@ -450,13 +489,13 @@ def parse_args():
         default=None,
         help="Generar gráfico de tiempo. Si no se especifica archivo, se busca automáticamente.",
     )
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     global DATA_DIR, FILES_DIR, CACHE_DIR
 
-    a = parse_args()
+    a = parse_args(argv)
     if a.root:
         DATA_DIR = a.root
         FILES_DIR = DATA_DIR
