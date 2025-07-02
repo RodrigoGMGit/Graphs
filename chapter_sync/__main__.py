@@ -6,6 +6,7 @@ from chapter_sync import graphs, gui, presentation
 
 def main(argv=None):
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("matplotlib.category").setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(
         prog="chaptersync", description="ChapterSync tools"
     )
