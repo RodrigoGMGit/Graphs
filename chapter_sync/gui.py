@@ -156,6 +156,7 @@ def save_config(active_email: str):
         json.dumps(
             {"active": active_email, "profiles": [asdict(p) for p in PROFILES]},
             indent=2,
+            ensure_ascii=False,
         ),
         "utf-8",
     )

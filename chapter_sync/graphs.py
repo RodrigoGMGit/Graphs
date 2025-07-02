@@ -21,9 +21,7 @@ import logging
 import os
 import re
 import unicodedata
-from typing import cast
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -246,31 +244,67 @@ def plot_calidad_pases(file_path: str) -> None:
         plt.show()
 
 
-# ───────────── 2 · DEDICACIÓN ─────────────
+# ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
 def plot_dedicacion_tm(file_path: str) -> None:
+    """
+    Genera DOS gráficos independientes (se muestran uno tras otro):
+
+    1. Promedio de **Dedicación** (horas) por miembro de equipo.
+    2. Promedio de **Duración subtareas Registradas** (días) por miembro de equipo,
+       siempre que exista la columna «Duración subtareas Registradas (días)».
+
+    Cada llamada a ``plt.show()`` produce una figura; el mecanismo `capture()`
+    del módulo *presentation.py* capturará ambas imágenes y las apilará en la
+    misma diapositiva (imitando el comportamiento de TMD).
+    """
     df = read_any(file_path)
     df = _filter_by_chapter_leader(df, "Nombre CL")
     if df.empty:
         return _warn("Sin dedicación para CL.")
 
-    avg = df.groupby("Nombres")["Dedicación"].mean().sort_values()
-    plt.figure(figsize=(10, 6))
-    plt.grid(axis="x", ls="--", alpha=0.4)
-    bars = plt.barh(avg.index.tolist(), avg.values.tolist(), color="seagreen")
-    for bar in bars:
-        rect = cast(mpatches.Rectangle, bar)
-        width = rect.get_width()  # type: ignore[attr-defined]
-        plt.text(
-            width + 0.03,
-            rect.get_y() + rect.get_height() / 2,  # type: ignore[attr-defined]
-            f"{width:.1f} h",
-            va="center",
-            fontsize=9,
+    COL_DED = "Dedicación"
+    COL_DUR = "Duración subtareas Registradas (días)"
+
+    def _plot_barh(series: pd.Series, title: str, unidad: str) -> None:
+        """Helper reutilizable para barras horizontales con etiquetas."""
+        plt.figure(figsize=(10, 6))
+        plt.grid(axis="x", ls="--", alpha=0.4)
+
+        bars = plt.barh(series.index.tolist(), series.values.tolist(), color="seagreen")
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(
+                width + 0.03,
+                bar.get_y() + bar.get_height() / 2,
+                f"{width:.1f} {unidad}",
+                va="center",
+                fontsize=9,
+            )
+
+        plt.xlabel(f"Promedio ({unidad})")
+        plt.title(title)
+        plt.tight_layout()
+
+    # ── 1 · Dedicación (horas) ─────────────────────────────────────
+    avg_hrs = (
+        df.groupby("Nombres")[COL_DED]
+        .mean()
+        .sort_values()  # orden ascendente para barh
+    )
+    _plot_barh(avg_hrs, "Dedicación promedio por miembro de equipo", "h")
+    plt.show()  # ← primera imagen capturada
+
+    # ── 2 · Duración subtareas (días) ──────────────────────────────
+    if COL_DUR in df.columns:
+        avg_days = df.groupby("Nombres")[COL_DUR].mean().sort_values()
+        _plot_barh(
+            avg_days,
+            "Duración subtareas promedio por miembro de equipo",
+            "días",
         )
-    plt.xlabel("Promedio de Dedicación (horas)")
-    plt.title("Dedicación promedio por miembro de equipo")
-    plt.tight_layout()
-    plt.show()
+        plt.show()  # ← segunda imagen capturada
+    else:
+        _warn(f"No se encontró la columna «{COL_DUR}» en el archivo.")
 
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────

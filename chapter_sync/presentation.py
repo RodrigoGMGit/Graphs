@@ -11,8 +11,8 @@ import datetime as dt
 import io
 import os
 import sys
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 from typing import List, cast
 
 import matplotlib.pyplot as plt
@@ -73,21 +73,38 @@ def main() -> None:
     SH: Emu = cast(Emu, prs.slide_height)
 
     PIC_W_STD = cast(Emu, int(SW * 0.70))  # 70 % ancho (Madurez/DR)
-    PIC_W_TMD = cast(Emu, SW - Inches(1.0))  # 90 % ancho (0 .5″ márgenes)
-    LEFT_STD = cast(Emu, (SW - PIC_W_STD) // 2)
-    LEFT_TMD = Inches(0.5)
+    PIC_W_TMD = cast(Emu, SW - Inches(1.0))  # 90 % ancho (0 .5″ márgenes)  # noqa: F841
+    LEFT_STD = cast(Emu, (SW - PIC_W_STD) // 2)  # noqa: F841
+    LEFT_TMD = Inches(0.5)  # noqa: F841
     TOP_MIN = Inches(0.8)
-    GAP_V_TMD = Inches(0.40)
+    GAP_V_TMD = Inches(0.40)  # noqa: F841
 
     def add_center(slide: Slide, buf: io.BytesIO, width: Emu) -> None:
-        pic = slide.shapes.add_picture(buf, 0, 0, width)
+        pic = slide.shapes.add_picture(buf, 0, 0, width) # type: ignore
         pic.left = cast(Emu, (SW - pic.width) // 2)
         pic.top = cast(Emu, max(TOP_MIN, (SH - pic.height) // 2))
 
     if imgs_mad:
         add_center(prs.slides[2], imgs_mad[0], PIC_W_STD)
 
-    if imgs_ded:
+    # ——— Dedicación + Duración subtareas (mismo layout que TMD) ————
+    if len(imgs_ded) >= 2:
+        s3 = prs.slides[3]
+        margin_h = Inches(0.5)
+        gap_v = Inches(0.05)
+
+        # => exactamente el mismo cálculo que TMD
+        pic_w = cast(Emu, (SW - 2 * margin_h - Inches(0.25)) // 2)
+        left_c = cast(Emu, (SW - pic_w) // 2)
+        top_1 = Inches(0.2)
+
+        shape1 = s3.shapes.add_picture(imgs_ded[0], left_c, top_1, pic_w)
+
+        top_2 = cast(Emu, shape1.top + shape1.height + gap_v)
+        s3.shapes.add_picture(imgs_ded[1], left_c, top_2, pic_w)
+
+    # Si por alguna razón solo llega una imagen (back-compat)
+    elif imgs_ded:
         add_center(prs.slides[3], imgs_ded[0], PIC_W_STD)
 
     if len(imgs_tmd) >= 2:
@@ -111,7 +128,7 @@ def main() -> None:
         )
         idx, cur = 0, base
         while idx < len(imgs_cal):
-            l, t, w, h = rect
+            l, t, w, h = rect  # noqa: E741
             gap = Inches(0.15)
             cw, ch = cast(Emu, (w - gap) // 2), cast(Emu, (h - gap) // 2)
             for r in range(2):
@@ -125,7 +142,7 @@ def main() -> None:
             if idx < len(imgs_cal):
                 new = prs.slides.add_slide(base.slide_layout)
                 for shp in base.shapes:
-                    if shp.is_placeholder and shp.text_frame:
+                    if shp.is_placeholder and shp.text_frame: # type: ignore
                         new.shapes._spTree.insert_element_before(
                             deepcopy(shp.element), "p:extLst"
                         )
