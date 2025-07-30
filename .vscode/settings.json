@@ -3,6 +3,11 @@
      1.  Pylance / IntelliSense
   ───────────────────────────────────────────── */
   "python.analysis.typeCheckingMode": "basic",          // mild type checking
+  // ➊  Preselect .venv when the folder is opened on a *new* machine
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  // ➋  Make sure VS Code *activates* the env each time it opens a terminal
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvInCurrentTerminal": true,            // re-eval for split panes
   "python.analysis.completeFunctionParens": true,       // auto-add ()
   "python.analysis.autoFormatStrings": true,            /* When typing a { in a string,
                                                            automatically prefix the
@@ -46,7 +51,7 @@
   "files.exclude": {
     "**/__pycache__": true,
     "**/.pytest_cache": true,
-    "**/.venv": true,
+    "**/.venv": false,
     "**/.mypy_cache": true,
     "**/.env": false                /* keep .env visible for editing */
   },
