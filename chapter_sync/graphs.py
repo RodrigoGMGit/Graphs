@@ -281,32 +281,41 @@ def plot_calidad_pases(file_path: str) -> None:
 # ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
 def plot_dedicacion_tm(file_path: str) -> None:
     """
-    Genera DOS gráficos independientes (se muestran uno tras otro):
+    Genera hasta DOS gráficos (mostrados uno tras otro):
 
-    1. Promedio de **Dedicación** (horas) por miembro de equipo.
-    2. Promedio de **Duración subtareas Registradas** (días) por miembro de equipo,
-       siempre que exista la columna «Duración subtareas Registradas (días)».
+      1) Promedio de **Dedicación** (horas) por miembro de equipo.
+      2) Promedio de **Duración de subtareas** (días) por miembro de equipo, si existe.
 
-    Cada llamada a ``plt.show()`` produce una figura; el mecanismo `capture()`
-    del módulo *presentation.py* capturará ambas imágenes y las apilará en la
-    misma diapositiva (imitando el comportamiento de TMD).
+    • Busca columnas por sinónimos (acentos/case/underscores tolerados).
+    • Filtra por CL por hoja.
+    • Si falta una métrica o no hay columna de persona, se omite solo ese gráfico.
+    • Compatible con pandas 2.x (sin mean(level=...)).
     """
-    df = read_any(file_path)
-    df = _filter_by_chapter_leader(df, "Nombre CL")
-    if df.empty:
-        return _warn("Sin dedicación para CL.")
 
-    COL_DED = "Dedicación"
-    COL_DUR = "Duración subtareas Registradas (días)"
+    # ── helpers ────────────────────────────────────────────────────────────────
+    def _norm_col(s: str) -> str:
+        s = unicodedata.normalize("NFKD", str(s))
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = re.sub(r"[\s_]+", "", s)
+        return s.upper()
+
+    def _find_col(df_: pd.DataFrame, candidates: list[str]) -> str | None:
+        lookup = {_norm_col(c): c for c in df_.columns}
+        for cand in candidates:
+            k = _norm_col(cand)
+            if k in lookup:
+                return lookup[k]
+        return None
+
+    def _has_cols(df_: pd.DataFrame, cols: list[str]) -> bool:
+        return all(c in df_.columns for c in cols)
 
     def _plot_barh(series: pd.Series, title: str, unidad: str) -> None:
-        """Helper reutilizable para barras horizontales con etiquetas."""
         plt.figure(figsize=(10, 6))
         plt.grid(axis="x", ls="--", alpha=0.4)
-
         bars = plt.barh(series.index.tolist(), series.values.tolist(), color="seagreen")
         for bar in bars:
-            width = bar.get_width()
+            width = float(bar.get_width())
             plt.text(
                 width + 0.03,
                 bar.get_y() + bar.get_height() / 2,
@@ -314,31 +323,117 @@ def plot_dedicacion_tm(file_path: str) -> None:
                 va="center",
                 fontsize=9,
             )
-
         plt.xlabel(f"Promedio ({unidad})")
         plt.title(title)
         plt.tight_layout()
 
-    # ── 1 · Dedicación (horas) ─────────────────────────────────────
-    avg_hrs = (
-        df.groupby("Nombres")[COL_DED]
-        .mean()
-        .sort_values()  # orden ascendente para barh
-    )
-    _plot_barh(avg_hrs, "Dedicación promedio por miembro de equipo", "h")
-    _maybe_show()  # ← primera imagen capturada
+    # ── hojas ─────────────────────────────────────────────────────────────────
+    try:
+        xls = pd.ExcelFile(file_path)
+        sheet_names = xls.sheet_names
+    except Exception:
+        sheet_names = [None]  # type: ignore[list-item]
 
-    # ── 2 · Duración subtareas (días) ──────────────────────────────
-    if COL_DUR in df.columns:
-        avg_days = df.groupby("Nombres")[COL_DUR].mean().sort_values()
-        _plot_barh(
-            avg_days,
-            "Duración subtareas promedio por miembro de equipo",
-            "días",
-        )
-        _maybe_show()  # ← segunda imagen capturada
+    # Sinónimos
+    CL_CANDS = ["CL", "Nombre CL", "Chapter Leader", "Chapter leader", "NombreCL"]
+    PERSON_CANDS = [
+        "Nombres",
+        "Nombre",
+        "Colaborador",
+        "Recurso",
+        "Nombre Recurso",
+        "Nombre Empleado",
+    ]
+    DEDIC_CANDS = [
+        "Dedicación",
+        "Dedicacion",
+        "Dedicación (h)",
+        "Horas dedicación",
+        "Horas dedicacion",
+        "DR",
+    ]
+    DUR_CANDS = [
+        "Duración subtareas Registradas (días)",
+        "Duración subtareas (días)",
+        "Duracion subtareas (dias)",
+        "Duración",
+        "Duracion",
+        "Subtask Duration (days)",
+    ]
+
+    dedic_series: pd.Series | None = None
+    dur_series: pd.Series | None = None
+
+    # ── detectar métricas hoja por hoja ───────────────────────────────────────
+    for sh in sheet_names:
+        try:
+            df = read_any(file_path, sheet_name=sh) if sh else read_any(file_path)
+        except Exception as exc:
+            logger.debug(f"No se pudo leer hoja {sh!r}: {exc}")
+            continue
+
+        cl_col = _find_col(df, CL_CANDS)
+        person_col = _find_col(df, PERSON_CANDS)
+        dedic_col = _find_col(df, DEDIC_CANDS)
+        dur_col = _find_col(df, DUR_CANDS)
+
+        # Filtrar por CL (y hacer COPIA para evitar SettingWithCopyWarning)
+        df_f = (df if cl_col is None else _filter_by_chapter_leader(df, cl_col)).copy()
+
+        # DEDICACIÓN: requiere person_col + dedic_col
+        if (
+            dedic_series is None
+            and person_col
+            and dedic_col
+            and _has_cols(df_f, [person_col, dedic_col])
+        ):
+            df_f.loc[:, dedic_col] = pd.to_numeric(df_f[dedic_col], errors="coerce")
+            s = df_f.groupby(person_col, dropna=False)[dedic_col].mean()
+            s = s.dropna().sort_values()
+            if not s.empty:
+                dedic_series = s
+
+        # DURACIÓN: requiere person_col + dur_col
+        if (
+            dur_series is None
+            and person_col
+            and dur_col
+            and _has_cols(df_f, [person_col, dur_col])
+        ):
+            df_f.loc[:, dur_col] = pd.to_numeric(df_f[dur_col], errors="coerce")
+            s = df_f.groupby(person_col, dropna=False)[dur_col].mean()
+            s = s.dropna().sort_values()
+            if not s.empty:
+                dur_series = s
+
+        if dedic_series is not None and dur_series is not None:
+            break
+
+    # ── graficar según disponibilidad ─────────────────────────────────────────
+    any_chart = False
+
+    if dedic_series is not None and not dedic_series.empty:
+        _plot_barh(dedic_series, "Dedicación promedio por miembro de equipo", "h")
+        _maybe_show()
+        any_chart = True
     else:
-        _warn(f"No se encontró la columna «{COL_DUR}» en el archivo.")
+        _warn(
+            "No se encontró métrica de Dedicación con columna de persona ('Nombres'); se omitirá ese gráfico."
+        )
+
+    if dur_series is not None and not dur_series.empty:
+        _plot_barh(
+            dur_series, "Duración subtareas promedio por miembro de equipo", "días"
+        )
+        _maybe_show()
+        any_chart = True
+    else:
+        _warn(
+            "No se encontró métrica de Duración de subtareas con columna de persona ('Nombres'); se omitirá ese gráfico."
+        )
+
+    if not any_chart:
+        _warn("Sin datos de Dedicación ni Duración para el CL activo.")
 
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
