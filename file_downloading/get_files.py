@@ -5,17 +5,20 @@ import unicodedata
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
 
 # ==== ENV / CONFIG ====
-load_dotenv()  # reads .env in the working directory
+load_dotenv()  # reads .env in working dir (or parent dirs)
 
 TENANT_ID = os.environ["AZ_TENANT_ID"]
 CLIENT_ID = os.environ["AZ_CLIENT_ID"]
 CLIENT_SECRET = os.environ["AZ_CLIENT_SECRET"]
+DOWNLOAD_ROOT = Path(os.getenv("DOWNLOAD_DIR", "downloads")).resolve()
+DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Pattern keys
 DMY_DOTS = "DMY_DOTS"  # 09.06.2025  or 09-06-2025
@@ -36,26 +39,30 @@ class FolderRule:
     url: str
     prefix: str  # filename must start with this (case-insensitive)
     pattern: str  # one of the constants above
-    exts: Tuple[str, ...] = (".xlsx",)  # restrict to .xlsx as requested
+    exts: Tuple[str, ...] = (".xlsx",)  # .xlsx only per your requirement
 
 
-# Your four folders with their rules
+# --- Your four folders with their date rules ---
 FOLDERS: List[FolderRule] = [
+    # Cantidad y Calidad de Pases (OneDrive) — "Pases a Producción y Reversiones – DD.MM.YYYY.xlsx"
     FolderRule(
         url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FDB%20Validacion%20Dashboard%2FOKRs%2FCantidad%20y%20Calidad%20Pases&ga=1",
         prefix="Pases a Producción y Reversiones",
         pattern=DMY_DOTS,
     ),
+    # TMD (OneDrive) — "BD Dashboard OKR T.Desarrollo - DD.MM.YYYY.xlsx"
     FolderRule(
         url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FDB%20Validacion%20Dashboard%2FOKRs%2FTMD%20%28Desarrollo%29&ga=1",
         prefix="BD Dashboard OKR T.Desarrollo",
         pattern=DMY_DOTS,
     ),
+    # SharePoint site — only "Reporte_NM_DD_MM_YY.xlsx"
     FolderRule(
         url="https://credicorponline.sharepoint.com/sites/Equipodata/Documentos%20compartidos/Forms/AllItems.aspx?id=%2Fsites%2FEquipodata%2FDocumentos%20compartidos%2FGeneral%2FNivel%20de%20Madurez%2FReportes%20Resumen%2F202505&sortField=Modified&isAscending=false&viewid=6dc15532%2D2728%2D4c0b%2Dbff6%2D88c32f50d811&p=true&ga=1",
         prefix="Reporte_NM_",
         pattern=DMY_UNDERSCORE_2Y,
     ),
+    # IA COPILOT (OneDrive) — "dashboard-YYYYMMDD.xlsx"
     FolderRule(
         url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FIA%20COPILOT&sortField=Modified&isAscending=false&ga=1",
         prefix="dashboard-",
@@ -65,8 +72,26 @@ FOLDERS: List[FolderRule] = [
 
 
 # ==== Utilities ====
+def sanitize_filename(name: str) -> str:
+    """Remove characters illegal on Windows/macOS and strip trailing spaces."""
+    # Windows forbidden: < > : " / \ | ? * and control chars
+    name = "".join(ch for ch in name if 31 < ord(ch) != 127 and ch not in '<>:"/\\|?*')
+    return name.rstrip(" .")
+
+
+def ensure_unique_path(dirpath: Path, filename: str) -> Path:
+    """Return a non-clobbering path (adds (1), (2) … if needed)."""
+    base, ext = os.path.splitext(filename)
+    candidate = dirpath / filename
+    i = 1
+    while candidate.exists():
+        candidate = dirpath / f"{base} ({i}){ext}"
+        i += 1
+    return candidate
+
+
 def norm_name(name: str) -> str:
-    """Normalize Unicode dashes and drop trailing '(n)' before the extension."""
+    """Normalize Unicode & drop trailing '(n)' before the extension; unify dashes."""
     base, ext = os.path.splitext(name)
     base = re.sub(r"\(\d+\)$", "", base).translate(DASH_MAP)
     return unicodedata.normalize("NFKC", base) + ext
@@ -76,28 +101,24 @@ def starts_with_prefix(name: str, prefix: str) -> bool:
     return norm_name(name).lower().startswith(prefix.lower())
 
 
-def parse_date(name: str, pattern: str) -> Optional[datetime]:
-    """Return a timezone-aware UTC datetime parsed from filename, or None."""
+def parse_date_from_name(name: str, pattern: str) -> Optional[datetime]:
+    """Return a UTC datetime parsed from filename per rule, else None."""
     base = os.path.splitext(norm_name(name))[0]
-
     if pattern == DMY_DOTS:
         m = RX_DMY_DOTS.search(base)
         if m:
             d, mth, y = map(int, m.groups())
             return datetime(y, mth, d, tzinfo=timezone.utc)
-
     elif pattern == YMD_COMPACT:
         m = RX_YMD_COMPACT.search(base)
         if m:
             y, mth, d = map(int, m.groups())
             return datetime(y, mth, d, tzinfo=timezone.utc)
-
     elif pattern == DMY_UNDERSCORE_2Y:
         m = RX_DMY_UNDERSCORE_2Y.search(base)
         if m:
             d, mth, yy = map(int, m.groups())
             return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
-
     return None
 
 
@@ -137,12 +158,11 @@ class GraphClient:
     def _paged(self, url: str) -> Iterable[dict]:
         while url:
             data = self._get(url).json()
-            for item in data.get("value", []):
-                yield item
+            yield from data.get("value", [])
             url = data.get("@odata.nextLink")
 
     @staticmethod
-    def _split_url(url: str) -> Tuple[str, str, str, str, str]:
+    def split_url(url: str) -> Tuple[str, str, str, str, str]:
         """
         Returns (host, site_path, library, folder_rel, root_kind)
         Accepts OneDrive 'onedrive.aspx?id=...' and SharePoint 'AllItems.aspx?id=...' links.
@@ -196,8 +216,23 @@ class GraphClient:
             url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
         return list(self._paged(url))
 
+    def download_item(self, drive_id: str, item_id: str, dest_path: Path) -> Path:
+        """
+        Download a drive item to dest_path (file path, not folder).
+        Streams content; returns the saved path.
+        """
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+        with self.session.get(url, headers=self.h, stream=True, timeout=300) as r:
+            r.raise_for_status()
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+        return dest_path
 
-# ==== Selection logic (dry run) ====
+
+# ==== Selection logic ====
 def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
     """Filter by extension & prefix, parse date per rule, tie-break on lastModifiedDateTime."""
     cand = []
@@ -212,9 +247,10 @@ def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
         if not starts_with_prefix(name, rule.prefix):
             continue
 
-        dt = parse_date(name, rule.pattern)
+        dt = parse_date_from_name(name, rule.pattern)
         if dt is None:
             continue
+
         mod = datetime.fromisoformat(
             it["lastModifiedDateTime"].replace("Z", "+00:00")
         ).astimezone(timezone.utc)
@@ -223,53 +259,66 @@ def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
     if not cand:
         return None
 
-    cand.sort(key=lambda t: (t[0], t[1]), reverse=True)  # date ↓ then modified ↓
+    cand.sort(key=lambda t: (t[0], t[1]), reverse=True)  # by parsed date, then modified
     return cand[0][2]
 
 
-def dry_run_for_folder(gc: GraphClient, rule: FolderRule) -> None:
-    host, site_path, library, folder_rel, root_kind = gc._split_url(rule.url)
-    site_id = gc.site_id(host, site_path)
-    drive_id = gc.drive_id(site_id, root_kind, library)
-    items = gc.list_children(drive_id, folder_rel)
+def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
+    saved_paths: list[Path] = []
 
-    chosen = choose_latest(items, rule)
-    print(
-        f"\n=== Folder ===\n{rule.url}\nRule: prefix='{rule.prefix}', pattern={rule.pattern}"
-    )
-    if not items:
-        print("  No items found.")
-        return
-    if not chosen:
-        print("  No matching .xlsx files for this rule.")
-        return
+    for rule in rules:
+        print(
+            f"\n=== Processing folder ===\n{rule.url}\nRule: prefix='{rule.prefix}', pattern={rule.pattern}"
+        )
+        try:
+            host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
+            site_id = gc.site_id(host, site_path)
+            drive_id = gc.drive_id(site_id, root_kind, library)
+            items = gc.list_children(drive_id, folder_rel)
 
-    parsed = parse_date(chosen["name"], rule.pattern)
-    mod = datetime.fromisoformat(
-        chosen["lastModifiedDateTime"].replace("Z", "+00:00")
-    ).astimezone(timezone.utc)
-    print("  Would select:")
-    print(f"    Name        : {chosen['name']}")
-    print(f"    Parsed date : {parsed.date() if parsed else '—'}")
-    print(f"    Modified    : {mod.isoformat()}")
-    print(f"    Drive ID    : {drive_id}")
-    print(f"    Item ID     : {chosen['id']}")
-    print(
-        f"    Content URL : /v1.0/drives/{drive_id}/items/{chosen['id']}/content  (not called)"
-    )
+            if not items:
+                print("  No items found in this folder.")
+                continue
+
+            chosen = choose_latest(items, rule)
+            if not chosen:
+                print("  No matching .xlsx files for this rule.")
+                continue
+
+            # Prepare destination path
+            subdir_name = sanitize_filename(rule.prefix) or "downloads"
+            out_dir = DOWNLOAD_ROOT / subdir_name
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            filename = sanitize_filename(chosen["name"])
+            dest = ensure_unique_path(out_dir, filename)
+
+            # Download
+            print(f"  Downloading: {chosen['name']} → {dest}")
+            saved = gc.download_item(drive_id, chosen["id"], dest)
+            print(f"  Saved: {saved}")
+            saved_paths.append(saved)
+
+        except requests.HTTPError as e:
+            print(f"  HTTP error: {e.response.status_code} {e.response.text}")
+        except Exception as ex:
+            print(f"  ERROR: {ex}")
+
+    return saved_paths
 
 
 def main():
     print("Token: acquiring (Sites.Read.All-only flow)…")
     gc = GraphClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-    print("OK. Dry run (no downloads).")
-    for rule in FOLDERS:
-        try:
-            dry_run_for_folder(gc, rule)
-        except requests.HTTPError as e:
-            print(f"  HTTP error: {e.response.status_code} {e.response.text}")
-        except Exception as ex:
-            print(f"  ERROR: {ex}")
+    print(f"OK. Download root: {DOWNLOAD_ROOT}")
+
+    saved = run_downloads(gc, FOLDERS)
+    if saved:
+        print("\n=== Done. Files saved ===")
+        for p in saved:
+            print(f" - {p}")
+    else:
+        print("\nNo files were saved (nothing matched your rules).")
 
 
 if __name__ == "__main__":

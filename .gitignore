@@ -203,5 +203,4 @@ __marimo__/
 ./dist
 chapter_config.json
 chapter_sync/outputs/
-test_token.py
-token.ps1
+downloads
