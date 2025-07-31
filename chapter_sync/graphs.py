@@ -320,7 +320,6 @@ def plot_calidad_pases(file_path: str) -> None:
                 .reset_index(name="revs")
             )
             full = c_p.merge(c_r, on=["Squad", "Mes"], how="outer")
-            # ⬇️ FIX: solo llenar NaN en columnas numéricas, no en 'Mes' categórica
             for col in ("passes", "revs"):
                 if col in full.columns:
                     full[col] = full[col].fillna(0).astype(int)
@@ -330,7 +329,7 @@ def plot_calidad_pases(file_path: str) -> None:
 
             for sq in sorted(full["Squad"].astype(str).unique()):
                 _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
-            return  #  ← done con formato antiguo
+            return  # ← fin formato antiguo
 
         # ── 2) Excel NUEVO con 1 hoja ‘Tipo’ ──────────────────────────────────
         df = read_any(file_path, sheet_name=xl.sheet_names[0])
@@ -345,11 +344,12 @@ def plot_calidad_pases(file_path: str) -> None:
             return _warn(
                 "Faltan columnas básicas ('Tipo', 'Squad', 'CL') en Calidad nuevo."
             )
-        
-        df = _filter_by_chapter_leader(df, cl_col) # type: ignore
+
+        df = _filter_by_chapter_leader(df, cl_col)  # type: ignore[arg-type]
         if df.empty:
             return _warn("Sin datos de Calidad para CL.")
 
+        # Normalizar Tipo → {'Pase','Reversion'}
         tipo_norm = (
             df[tipo_col]
             .astype("string")
@@ -370,15 +370,16 @@ def plot_calidad_pases(file_path: str) -> None:
         if df.empty:
             return _warn("No hay filas con Tipo válido ('Pase'|'Reversion').")
 
+        # Mes
         if mes_col is None:
             if fecha_col is None:
                 return _warn("Faltan 'Mes' y 'Fecha implementado' para derivar mes.")
             df["_Mes"] = _ensure_month_col(df, fecha_col)
         else:
             df["_Mes"] = df[mes_col].astype(MONTH_CAT)
-
         df["_Mes"] = df["_Mes"].astype(MONTH_CAT)
 
+        # Conteos
         cnt = (
             df.groupby([squad_col, "_Mes", "_TIPO"], observed=True)
             .size()
@@ -386,6 +387,13 @@ def plot_calidad_pases(file_path: str) -> None:
             .reset_index()
         )
 
+        # Garantizar columnas de tipo antes del rename (por si un tipo no aparece)
+        if "Pase" not in cnt.columns:
+            cnt["Pase"] = 0
+        if "Reversion" not in cnt.columns:
+            cnt["Reversion"] = 0
+
+        # Renombrar a esquema estándar
         cnt = cnt.rename(
             columns={
                 "Pase": "passes",
@@ -394,6 +402,13 @@ def plot_calidad_pases(file_path: str) -> None:
                 squad_col: "Squad",
             }
         )
+
+        # ⬅️ Guardas FINALES: si tras el rename faltara alguno, créalo en cero
+        if "passes" not in cnt.columns:
+            cnt["passes"] = 0
+        if "revs" not in cnt.columns:
+            cnt["revs"] = 0
+
         full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
         if full.empty:
             return _warn("Sin conteos de Pases/Reversiones para el CL.")
@@ -411,18 +426,52 @@ def plot_calidad_pases(file_path: str) -> None:
     if not all([cl_col, squad_col, tipo_col, mes_col]):
         return _warn("El archivo unificado carece de columnas 'Tipo', 'Squad' o 'Mes'.")
 
-    df = _filter_by_chapter_leader(df, cl_col) # type: ignore
+    df = _filter_by_chapter_leader(df, cl_col)  # type: ignore[arg-type]
     if df.empty:
         return _warn("Sin datos de Calidad para CL.")
 
     df["Mes"] = df[mes_col].astype(MONTH_CAT)
+
     cnt = (
         df.groupby([squad_col, "Mes", tipo_col], observed=True)
         .size()
         .unstack(tipo_col, fill_value=0)
         .reset_index()
-        .rename(columns={"Pase": "passes", "Reversion": "revs", squad_col: "Squad"})
     )
+
+    # Estandarizar nombres de columnas de tipo por prefijo normalizado
+    def _col_pref(c: str) -> str:
+        cc = _norm_col(c)
+        if cc.startswith("PASE"):
+            return "Pase"
+        if cc.startswith("REVER"):
+            return "Reversion"
+        return c
+
+    new_cols = {}
+    for c in list(cnt.columns):
+        if isinstance(c, str):
+            pref = _col_pref(c)
+            if pref in {"Pase", "Reversion"} and c != pref:
+                new_cols[c] = pref
+    if new_cols:
+        cnt = cnt.rename(columns=new_cols)
+
+    if "Pase" not in cnt.columns:
+        cnt["Pase"] = 0
+    if "Reversion" not in cnt.columns:
+        cnt["Reversion"] = 0
+
+    cnt = cnt.rename(
+        columns={squad_col: "Squad", "Pase": "passes", "Reversion": "revs"}
+    )
+
+    # ⬅️ Guardas FINALES también aquí
+    if "passes" not in cnt.columns:
+        cnt["passes"] = 0
+    if "revs" not in cnt.columns:
+        cnt["revs"] = 0
+
     full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
     if full.empty:
         return _warn("Sin conteos de Pases/Reversiones para el CL.")
