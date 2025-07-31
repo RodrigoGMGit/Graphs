@@ -193,55 +193,65 @@ def read_any(fp: str, **kw) -> pd.DataFrame:
 
 # ───────────── 1 · CALIDAD ─────────────
 def plot_calidad_pases(file_path: str) -> None:
-    fp = file_path
-    if fp.lower().endswith(".xlsx"):
-        pases = read_any(fp, sheet_name="Consolidado Pases")
-        revs = read_any(fp, sheet_name="Consolidado Reversiones")
-    else:  # parquet unificado
-        dfall = read_any(fp)
-        pases = dfall[dfall["Tipo"] == "Pase a Producción"].copy()
-        revs = dfall[dfall["Tipo"] == "Reversión"].copy()
+    """
+    Calidad – Pases a Producción vs Reversiones.
 
-    pases = _filter_by_chapter_leader(pases, "Chapter leader")
-    revs = _filter_by_chapter_leader(revs, "Chapter leader")
-    if pases.empty and revs.empty:
-        return _warn("Sin datos de Calidad.")
+    ► Formatos soportados
+      1. Excel antiguo (2 hojas): 'Consolidado Pases' + 'Consolidado Reversiones'
+      2. Excel nuevo (1 hoja) con columna 'Tipo' ('Pase' | 'Reversion')
+      3. Archivo unificado (Parquet) con columna 'Tipo'
 
-    pases["Mes"] = pases["Mes"].astype(MONTH_CAT)
-    revs["Mes"] = revs["Mes"].astype(MONTH_CAT)
+    Mantiene:
+      • Filtro por Chapter Leader
+      • % Reversiones en rojo si > 3 %
+      • Una figura por Squad
+    """
 
-    c_p = (
-        pases.groupby(["Squad", "Mes"], observed=True).size().reset_index(name="passes")
-    )
-    c_r = revs.groupby(["Squad", "Mes"], observed=True).size().reset_index(name="revs")
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _norm_col(s: str) -> str:
+        s = unicodedata.normalize("NFKD", str(s))
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        return re.sub(r"[\s_]+", "", s).upper()
 
-    full = c_p.merge(c_r, on=["Squad", "Mes"], how="outer")
-    full["passes"] = full["passes"].fillna(0).astype(int)
-    full["revs"] = full["revs"].fillna(0).astype(int)
-    full = full[(full["passes"] + full["revs"]) > 0]
+    def _find_col(df_: pd.DataFrame, cands: list[str]) -> str | None:
+        lut = {_norm_col(c): c for c in df_.columns}
+        for cand in cands:
+            if (k := _norm_col(cand)) in lut:
+                return lut[k]
+        return None
 
-    for sq in sorted(full["Squad"].unique()):
-        d = full[full["Squad"] == sq].sort_values("Mes")
+    def _ensure_month_col(df_: pd.DataFrame, date_col: str) -> pd.Series:
+        """Deriva el mes (‘Ene’…‘Dic’) de una columna fecha en formato dd/mm/yyyy."""
+        dt = pd.to_datetime(df_[date_col], format="%d/%m/%Y", errors="coerce")
+        if dt.isna().mean() > 0.05:
+            dt = pd.to_datetime(df_[date_col], dayfirst=True, errors="coerce")
+        months = dt.dt.month
+        labels = months.map(
+            lambda x: MONTHS_ES[int(x) - 1]
+            if pd.notna(x) and 1 <= int(x) <= 12
+            else pd.NA
+        )
+        return labels.astype(MONTH_CAT)
+
+    def _plot_squad(d: pd.DataFrame, squad: str) -> None:
         plt.figure(figsize=(8, 4))
         plt.plot(d["Mes"].astype(str), d["passes"], marker="o", label="Pases")
         plt.plot(
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
 
-        # Añadir etiquetas con el porcentaje de reversiones entre pases
-        for i, row in d.iterrows():
-            if row["passes"] > 0:  # Evitar división por cero
-                percent = (row["revs"] / row["passes"]) * 100
-                # Usar rojo si el porcentaje es mayor a 3%
-                text_color = "red" if percent > 3 else "black"
+        for _, row in d.iterrows():
+            if row["passes"] > 0:
+                pct = 100 * row["revs"] / row["passes"]
+                color = "red" if pct > 3 else "black"
                 plt.text(
                     row["Mes"],
                     row["passes"],
-                    f"{percent:.1f}%",
-                    fontsize=8,
+                    f"{pct:.1f}%",
                     ha="center",
                     va="bottom",
-                    color=text_color,
+                    fontsize=8,
+                    color=color,
                     bbox=dict(
                         facecolor="white",
                         alpha=0.7,
@@ -250,15 +260,14 @@ def plot_calidad_pases(file_path: str) -> None:
                     ),
                 )
 
-        # Añadir nota explicativa en la esquina inferior derecha
         plt.text(
             0.95,
             0.05,
             "% Reversiones > 3% en rojo",
-            fontsize=8,
             ha="right",
             va="top",
             transform=plt.gca().transAxes,
+            fontsize=8,
             bbox=dict(
                 facecolor="white",
                 alpha=0.8,
@@ -267,15 +276,159 @@ def plot_calidad_pases(file_path: str) -> None:
             ),
         )
 
-        plt.title(sq)
+        plt.title(squad)
         plt.ylabel("Pases a PRD vs Reversiones")
         plt.grid(True)
         plt.legend()
-        # Forzar pasos de 1 en el eje Y
         max_y = int(max(d["passes"].max(), d["revs"].max())) + 1
         plt.yticks(range(0, max_y, 1))
         plt.tight_layout()
         _maybe_show()
+
+    # ── 1) Excel antiguo con 2 hojas ─────────────────────────────────────────
+    if file_path.lower().endswith(".xlsx"):
+        try:
+            xl = pd.ExcelFile(file_path)
+        except Exception as exc:
+            return _warn(f"No se pudo leer Excel Calidad: {exc}")
+
+        if {"Consolidado Pases", "Consolidado Reversiones"}.issubset(xl.sheet_names):
+            pases = read_any(file_path, sheet_name="Consolidado Pases")
+            revs = read_any(file_path, sheet_name="Consolidado Reversiones")
+
+            cl_col = _find_col(pases, ["Chapter leader", "CL", "Nombre CL"])
+            if cl_col is None:
+                return _warn(
+                    "Falta columna Chapter Leader en hojas antiguas de Calidad."
+                )
+            pases = _filter_by_chapter_leader(pases, cl_col)
+            revs = _filter_by_chapter_leader(revs, cl_col)
+            if pases.empty and revs.empty:
+                return _warn("Sin datos de Calidad para CL.")
+
+            pases["Mes"] = pases["Mes"].astype(MONTH_CAT)
+            revs["Mes"] = revs["Mes"].astype(MONTH_CAT)
+
+            c_p = (
+                pases.groupby(["Squad", "Mes"], observed=True)
+                .size()
+                .reset_index(name="passes")
+            )
+            c_r = (
+                revs.groupby(["Squad", "Mes"], observed=True)
+                .size()
+                .reset_index(name="revs")
+            )
+            full = c_p.merge(c_r, on=["Squad", "Mes"], how="outer")
+            # ⬇️ FIX: solo llenar NaN en columnas numéricas, no en 'Mes' categórica
+            for col in ("passes", "revs"):
+                if col in full.columns:
+                    full[col] = full[col].fillna(0).astype(int)
+                else:
+                    full[col] = 0
+            full = full[(full["passes"] + full["revs"]) > 0]
+
+            for sq in sorted(full["Squad"].astype(str).unique()):
+                _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
+            return  #  ← done con formato antiguo
+
+        # ── 2) Excel NUEVO con 1 hoja ‘Tipo’ ──────────────────────────────────
+        df = read_any(file_path, sheet_name=xl.sheet_names[0])
+
+        cl_col = _find_col(df, ["Chapter leader", "CL", "Nombre CL"])
+        squad_col = _find_col(df, ["Squad", "SQ", "Nombre Squad"])
+        tipo_col = _find_col(df, ["Tipo"])
+        mes_col = _find_col(df, ["Mes"])
+        fecha_col = _find_col(df, ["Fecha implementado", "Fecha Implementado", "Fecha"])
+
+        if not all([cl_col, squad_col, tipo_col]):
+            return _warn(
+                "Faltan columnas básicas ('Tipo', 'Squad', 'CL') en Calidad nuevo."
+            )
+        
+        df = _filter_by_chapter_leader(df, cl_col) # type: ignore
+        if df.empty:
+            return _warn("Sin datos de Calidad para CL.")
+
+        tipo_norm = (
+            df[tipo_col]
+            .astype("string")
+            .str.normalize("NFKD")
+            .str.encode("ascii", "ignore")
+            .str.decode("ascii")
+            .str.strip()
+            .str.upper()
+        )
+        df = df.assign(
+            _TIPO=tipo_norm.map(
+                lambda x: "Pase"
+                if x.startswith("PASE")
+                else ("Reversion" if x.startswith("REVER") else pd.NA)
+            )
+        )
+        df = df[df["_TIPO"].notna()].copy()
+        if df.empty:
+            return _warn("No hay filas con Tipo válido ('Pase'|'Reversion').")
+
+        if mes_col is None:
+            if fecha_col is None:
+                return _warn("Faltan 'Mes' y 'Fecha implementado' para derivar mes.")
+            df["_Mes"] = _ensure_month_col(df, fecha_col)
+        else:
+            df["_Mes"] = df[mes_col].astype(MONTH_CAT)
+
+        df["_Mes"] = df["_Mes"].astype(MONTH_CAT)
+
+        cnt = (
+            df.groupby([squad_col, "_Mes", "_TIPO"], observed=True)
+            .size()
+            .unstack("_TIPO", fill_value=0)
+            .reset_index()
+        )
+
+        cnt = cnt.rename(
+            columns={
+                "Pase": "passes",
+                "Reversion": "revs",
+                "_Mes": "Mes",
+                squad_col: "Squad",
+            }
+        )
+        full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
+        if full.empty:
+            return _warn("Sin conteos de Pases/Reversiones para el CL.")
+
+        for sq in sorted(full["Squad"].astype(str).unique()):
+            _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
+        return
+
+    # ── 3) Archivo unificado (Parquet) ────────────────────────────────────────
+    df = read_any(file_path)
+    cl_col = _find_col(df, ["Chapter leader", "CL", "Nombre CL"])
+    squad_col = _find_col(df, ["Squad", "SQ"])
+    tipo_col = _find_col(df, ["Tipo"])
+    mes_col = _find_col(df, ["Mes"])
+    if not all([cl_col, squad_col, tipo_col, mes_col]):
+        return _warn("El archivo unificado carece de columnas 'Tipo', 'Squad' o 'Mes'.")
+
+    df = _filter_by_chapter_leader(df, cl_col) # type: ignore
+    if df.empty:
+        return _warn("Sin datos de Calidad para CL.")
+
+    df["Mes"] = df[mes_col].astype(MONTH_CAT)
+    cnt = (
+        df.groupby([squad_col, "Mes", tipo_col], observed=True)
+        .size()
+        .unstack(tipo_col, fill_value=0)
+        .reset_index()
+        .rename(columns={"Pase": "passes", "Reversion": "revs", squad_col: "Squad"})
+    )
+    full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
+    if full.empty:
+        return _warn("Sin conteos de Pases/Reversiones para el CL.")
+
+    for sq in sorted(full["Squad"].astype(str).unique()):
+        _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
 
 
 # ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
