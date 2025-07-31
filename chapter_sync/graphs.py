@@ -112,6 +112,23 @@ def norm_series(s: pd.Series) -> pd.Series:
     return s.fillna("").map(normalize_name)
 
 
+def _norm_col(s: str) -> str:
+    # normalize column names: strip accents, remove spaces/underscores, uppercase
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[\s_]+", "", s)
+    return s.upper()
+
+
+def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    lookup = {_norm_col(c): c for c in df.columns}
+    for cand in candidates:
+        key = _norm_col(cand)
+        if key in lookup:
+            return lookup[key]
+    return None
+
+
 # ─── Filtro unificado por Chapter Leader ──────────────────────────────
 def _filter_by_chapter_leader(df: pd.DataFrame, col_name: str) -> pd.DataFrame:
     """Primero filtra por nombre; si no hay filas y hay correo, prueba por correo."""
@@ -327,7 +344,17 @@ def plot_dedicacion_tm(file_path: str) -> None:
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
 def plot_niveles_madurez(file_path: str) -> None:
     df = read_any(file_path)
-    df = _filter_by_chapter_leader(df, "Chapter Leader")
+    # 1) locate key columns
+    cl_col = _find_col(df, ["Chapter Leader", "Chapter leader", "Nombre CL", "CL"])
+    sq_col = _find_col(df, ["SQ", "SQUAD", "SQUAD NAME", "NOMBRE SQUAD", "Squad"])
+
+    if not cl_col:
+        return _warn("Falta columna de Chapter Leader en Madurez.")
+    if not sq_col:
+        return _warn("Falta columna de Squad en Madurez.")
+
+    # 2) filter by Chapter Leader (same unified logic as TMD)
+    df = _filter_by_chapter_leader(df, cl_col)
     if df.empty:
         return _warn("Sin registros LEP para CL.")
 
@@ -391,7 +418,14 @@ def plot_niveles_madurez(file_path: str) -> None:
 
 # ───────────── 4 · TMD ─────────────
 def _find_cl_column(df: pd.DataFrame) -> str | None:
-    candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
+    candidates = [
+        "Nombre CL",
+        "cl_dev",
+        "Chapter leader",
+        "Chapter Leader",
+        "NombreCL",
+        "CL",
+    ]
     for c in df.columns:
         if normalize_name(c) in map(normalize_name, candidates):
             return c
@@ -479,28 +513,39 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
 def plot_tiempo_desarrollo(file_path: str) -> None:
     df = read_any(file_path)
 
+    # find columns by synonyms (accent/case/underscore-insensitive)
+    tribu_col = _find_col(
+        df, ["Descripción tribu", "Descripcion tribu", "descripcion_tribu"]
+    )
+    squad_col = _find_col(
+        df, ["Descripción squad", "Descripcion squad", "descripcion_squad"]
+    )
+    metric_col = _find_col(
+        df, ["Tiempo Desarrollo", "Tiempo_Desarrollo", "tiempo desarrollo"]
+    )
+
     cl_col = _find_cl_column(df)
     if cl_col is None:
         return _warn("No se encontró columna de Chapter Leader en TMD.")
 
+    if metric_col is None:
+        return _warn("No se encontró la columna de métrica 'Tiempo Desarrollo'.")
+
+    if not tribu_col or not squad_col:
+        return _warn("No se encontraron columnas de 'Tribu' o 'Squad' para TMD.")
+
+    # From here on, use the resolved names:
     df = _filter_by_chapter_leader(df, cl_col)
     if df.empty:
         return _warn("Sin datos de TMD para CL.")
 
-    df["Tiempo Desarrollo"] = pd.to_numeric(df["Tiempo Desarrollo"], errors="coerce")
-
-    squad_avg = (
-        df.groupby("Descripción squad")["Tiempo Desarrollo"]
-        .mean()
-        .dropna()
-        .sort_values(ascending=False)
-    )
+    df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
 
     tribe_avg = (
-        df.groupby("Descripción tribu")["Tiempo Desarrollo"]
-        .mean()
-        .dropna()
-        .sort_values(ascending=False)
+        df.groupby(tribu_col)[metric_col].mean().dropna().sort_values(ascending=False)
+    )
+    squad_avg = (
+        df.groupby(squad_col)[metric_col].mean().dropna().sort_values(ascending=False)
     )
 
     _plot_tmd(
