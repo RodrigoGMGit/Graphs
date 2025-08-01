@@ -208,17 +208,6 @@ def plot_calidad_pases(file_path: str) -> None:
     """
 
     # ── helpers ───────────────────────────────────────────────────────────────
-    def _norm_col(s: str) -> str:
-        s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.combining(ch))
-        return re.sub(r"[\s_]+", "", s).upper()
-
-    def _find_col(df_: pd.DataFrame, cands: list[str]) -> str | None:
-        lut = {_norm_col(c): c for c in df_.columns}
-        for cand in cands:
-            if (k := _norm_col(cand)) in lut:
-                return lut[k]
-        return None
 
     def _ensure_month_col(df_: pd.DataFrame, date_col: str) -> pd.Series:
         """Deriva el mes (‘Ene’…‘Dic’) de una columna fecha en formato dd/mm/yyyy."""
@@ -494,20 +483,8 @@ def plot_dedicacion_tm(file_path: str) -> None:
     • Compatible con pandas 2.x (sin mean(level=...)).
     """
 
-    # ── helpers ────────────────────────────────────────────────────────────────
-    def _norm_col(s: str) -> str:
-        s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.combining(ch))
-        s = re.sub(r"[\s_]+", "", s)
-        return s.upper()
 
-    def _find_col(df_: pd.DataFrame, candidates: list[str]) -> str | None:
-        lookup = {_norm_col(c): c for c in df_.columns}
-        for cand in candidates:
-            k = _norm_col(cand)
-            if k in lookup:
-                return lookup[k]
-        return None
+    # ── helpers ────────────────────────────────────────────────────────────────
 
     def _has_cols(df_: pd.DataFrame, cols: list[str]) -> bool:
         return all(c in df_.columns for c in cols)
