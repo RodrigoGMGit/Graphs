@@ -112,6 +112,23 @@ def norm_series(s: pd.Series) -> pd.Series:
     return s.fillna("").map(normalize_name)
 
 
+def _norm_col(s: str) -> str:
+    # normalize column names: strip accents, remove spaces/underscores, uppercase
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[\s_]+", "", s)
+    return s.upper()
+
+
+def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    lookup = {_norm_col(c): c for c in df.columns}
+    for cand in candidates:
+        key = _norm_col(cand)
+        if key in lookup:
+            return lookup[key]
+    return None
+
+
 # ─── Filtro unificado por Chapter Leader ──────────────────────────────
 def _filter_by_chapter_leader(df: pd.DataFrame, col_name: str) -> pd.DataFrame:
     """Primero filtra por nombre; si no hay filas y hay correo, prueba por correo."""
@@ -176,55 +193,54 @@ def read_any(fp: str, **kw) -> pd.DataFrame:
 
 # ───────────── 1 · CALIDAD ─────────────
 def plot_calidad_pases(file_path: str) -> None:
-    fp = file_path
-    if fp.lower().endswith(".xlsx"):
-        pases = read_any(fp, sheet_name="Consolidado Pases")
-        revs = read_any(fp, sheet_name="Consolidado Reversiones")
-    else:  # parquet unificado
-        dfall = read_any(fp)
-        pases = dfall[dfall["Tipo"] == "Pase a Producción"].copy()
-        revs = dfall[dfall["Tipo"] == "Reversión"].copy()
+    """
+    Calidad – Pases a Producción vs Reversiones.
 
-    pases = _filter_by_chapter_leader(pases, "Chapter leader")
-    revs = _filter_by_chapter_leader(revs, "Chapter leader")
-    if pases.empty and revs.empty:
-        return _warn("Sin datos de Calidad.")
+    ► Formatos soportados
+      1. Excel antiguo (2 hojas): 'Consolidado Pases' + 'Consolidado Reversiones'
+      2. Excel nuevo (1 hoja) con columna 'Tipo' ('Pase' | 'Reversion')
+      3. Archivo unificado (Parquet) con columna 'Tipo'
 
-    pases["Mes"] = pases["Mes"].astype(MONTH_CAT)
-    revs["Mes"] = revs["Mes"].astype(MONTH_CAT)
+    Mantiene:
+      • Filtro por Chapter Leader
+      • % Reversiones en rojo si > 3 %
+      • Una figura por Squad
+    """
 
-    c_p = (
-        pases.groupby(["Squad", "Mes"], observed=True).size().reset_index(name="passes")
-    )
-    c_r = revs.groupby(["Squad", "Mes"], observed=True).size().reset_index(name="revs")
+    # ── helpers ───────────────────────────────────────────────────────────────
 
-    full = c_p.merge(c_r, on=["Squad", "Mes"], how="outer")
-    full["passes"] = full["passes"].fillna(0).astype(int)
-    full["revs"] = full["revs"].fillna(0).astype(int)
-    full = full[(full["passes"] + full["revs"]) > 0]
+    def _ensure_month_col(df_: pd.DataFrame, date_col: str) -> pd.Series:
+        """Deriva el mes (‘Ene’…‘Dic’) de una columna fecha en formato dd/mm/yyyy."""
+        dt = pd.to_datetime(df_[date_col], format="%d/%m/%Y", errors="coerce")
+        if dt.isna().mean() > 0.05:
+            dt = pd.to_datetime(df_[date_col], dayfirst=True, errors="coerce")
+        months = dt.dt.month
+        labels = months.map(
+            lambda x: MONTHS_ES[int(x) - 1]
+            if pd.notna(x) and 1 <= int(x) <= 12
+            else pd.NA
+        )
+        return labels.astype(MONTH_CAT)
 
-    for sq in sorted(full["Squad"].unique()):
-        d = full[full["Squad"] == sq].sort_values("Mes")
+    def _plot_squad(d: pd.DataFrame, squad: str) -> None:
         plt.figure(figsize=(8, 4))
         plt.plot(d["Mes"].astype(str), d["passes"], marker="o", label="Pases")
         plt.plot(
             d["Mes"].astype(str), d["revs"], marker="x", ls="--", label="Reversiones"
         )
 
-        # Añadir etiquetas con el porcentaje de reversiones entre pases
-        for i, row in d.iterrows():
-            if row["passes"] > 0:  # Evitar división por cero
-                percent = (row["revs"] / row["passes"]) * 100
-                # Usar rojo si el porcentaje es mayor a 3%
-                text_color = "red" if percent > 3 else "black"
+        for _, row in d.iterrows():
+            if row["passes"] > 0:
+                pct = 100 * row["revs"] / row["passes"]
+                color = "red" if pct > 3 else "black"
                 plt.text(
                     row["Mes"],
                     row["passes"],
-                    f"{percent:.1f}%",
-                    fontsize=8,
+                    f"{pct:.1f}%",
                     ha="center",
                     va="bottom",
-                    color=text_color,
+                    fontsize=8,
+                    color=color,
                     bbox=dict(
                         facecolor="white",
                         alpha=0.7,
@@ -233,15 +249,14 @@ def plot_calidad_pases(file_path: str) -> None:
                     ),
                 )
 
-        # Añadir nota explicativa en la esquina inferior derecha
         plt.text(
             0.95,
             0.05,
             "% Reversiones > 3% en rojo",
-            fontsize=8,
             ha="right",
             va="top",
             transform=plt.gca().transAxes,
+            fontsize=8,
             bbox=dict(
                 facecolor="white",
                 alpha=0.8,
@@ -250,46 +265,236 @@ def plot_calidad_pases(file_path: str) -> None:
             ),
         )
 
-        plt.title(sq)
+        plt.title(squad)
         plt.ylabel("Pases a PRD vs Reversiones")
         plt.grid(True)
         plt.legend()
-        # Forzar pasos de 1 en el eje Y
         max_y = int(max(d["passes"].max(), d["revs"].max())) + 1
         plt.yticks(range(0, max_y, 1))
         plt.tight_layout()
         _maybe_show()
 
+    # ── 1) Excel antiguo con 2 hojas ─────────────────────────────────────────
+    if file_path.lower().endswith(".xlsx"):
+        try:
+            xl = pd.ExcelFile(file_path)
+        except Exception as exc:
+            return _warn(f"No se pudo leer Excel Calidad: {exc}")
+
+        if {"Consolidado Pases", "Consolidado Reversiones"}.issubset(xl.sheet_names):
+            pases = read_any(file_path, sheet_name="Consolidado Pases")
+            revs = read_any(file_path, sheet_name="Consolidado Reversiones")
+
+            cl_col = _find_col(pases, ["Chapter leader", "CL", "Nombre CL"])
+            if cl_col is None:
+                return _warn(
+                    "Falta columna Chapter Leader en hojas antiguas de Calidad."
+                )
+            pases = _filter_by_chapter_leader(pases, cl_col)
+            revs = _filter_by_chapter_leader(revs, cl_col)
+            if pases.empty and revs.empty:
+                return _warn("Sin datos de Calidad para CL.")
+
+            pases["Mes"] = pases["Mes"].astype(MONTH_CAT)
+            revs["Mes"] = revs["Mes"].astype(MONTH_CAT)
+
+            c_p = (
+                pases.groupby(["Squad", "Mes"], observed=True)
+                .size()
+                .reset_index(name="passes")
+            )
+            c_r = (
+                revs.groupby(["Squad", "Mes"], observed=True)
+                .size()
+                .reset_index(name="revs")
+            )
+            full = c_p.merge(c_r, on=["Squad", "Mes"], how="outer")
+            for col in ("passes", "revs"):
+                if col in full.columns:
+                    full[col] = full[col].fillna(0).astype(int)
+                else:
+                    full[col] = 0
+            full = full[(full["passes"] + full["revs"]) > 0]
+
+            for sq in sorted(full["Squad"].astype(str).unique()):
+                _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
+            return  # ← fin formato antiguo
+
+        # ── 2) Excel NUEVO con 1 hoja ‘Tipo’ ──────────────────────────────────
+        df = read_any(file_path, sheet_name=xl.sheet_names[0])
+
+        cl_col = _find_col(df, ["Chapter leader", "CL", "Nombre CL"])
+        squad_col = _find_col(df, ["Squad", "SQ", "Nombre Squad"])
+        tipo_col = _find_col(df, ["Tipo"])
+        mes_col = _find_col(df, ["Mes"])
+        fecha_col = _find_col(df, ["Fecha implementado", "Fecha Implementado", "Fecha"])
+
+        if not all([cl_col, squad_col, tipo_col]):
+            return _warn(
+                "Faltan columnas básicas ('Tipo', 'Squad', 'CL') en Calidad nuevo."
+            )
+
+        df = _filter_by_chapter_leader(df, cl_col)  # type: ignore[arg-type]
+        if df.empty:
+            return _warn("Sin datos de Calidad para CL.")
+
+        # Normalizar Tipo → {'Pase','Reversion'}
+        tipo_norm = (
+            df[tipo_col]
+            .astype("string")
+            .str.normalize("NFKD")
+            .str.encode("ascii", "ignore")
+            .str.decode("ascii")
+            .str.strip()
+            .str.upper()
+        )
+        df = df.assign(
+            _TIPO=tipo_norm.map(
+                lambda x: "Pase"
+                if x.startswith("PASE")
+                else ("Reversion" if x.startswith("REVER") else pd.NA)
+            )
+        )
+        df = df[df["_TIPO"].notna()].copy()
+        if df.empty:
+            return _warn("No hay filas con Tipo válido ('Pase'|'Reversion').")
+
+        # Mes
+        if mes_col is None:
+            if fecha_col is None:
+                return _warn("Faltan 'Mes' y 'Fecha implementado' para derivar mes.")
+            df["_Mes"] = _ensure_month_col(df, fecha_col)
+        else:
+            df["_Mes"] = df[mes_col].astype(MONTH_CAT)
+        df["_Mes"] = df["_Mes"].astype(MONTH_CAT)
+
+        # Conteos
+        cnt = (
+            df.groupby([squad_col, "_Mes", "_TIPO"], observed=True)
+            .size()
+            .unstack("_TIPO", fill_value=0)
+            .reset_index()
+        )
+
+        # Garantizar columnas de tipo antes del rename (por si un tipo no aparece)
+        if "Pase" not in cnt.columns:
+            cnt["Pase"] = 0
+        if "Reversion" not in cnt.columns:
+            cnt["Reversion"] = 0
+
+        # Renombrar a esquema estándar
+        cnt = cnt.rename(
+            columns={
+                "Pase": "passes",
+                "Reversion": "revs",
+                "_Mes": "Mes",
+                squad_col: "Squad",
+            }
+        )
+
+        # ⬅️ Guardas FINALES: si tras el rename faltara alguno, créalo en cero
+        if "passes" not in cnt.columns:
+            cnt["passes"] = 0
+        if "revs" not in cnt.columns:
+            cnt["revs"] = 0
+
+        full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
+        if full.empty:
+            return _warn("Sin conteos de Pases/Reversiones para el CL.")
+
+        for sq in sorted(full["Squad"].astype(str).unique()):
+            _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
+        return
+
+    # ── 3) Archivo unificado (Parquet) ────────────────────────────────────────
+    df = read_any(file_path)
+    cl_col = _find_col(df, ["Chapter leader", "CL", "Nombre CL"])
+    squad_col = _find_col(df, ["Squad", "SQ"])
+    tipo_col = _find_col(df, ["Tipo"])
+    mes_col = _find_col(df, ["Mes"])
+    if not all([cl_col, squad_col, tipo_col, mes_col]):
+        return _warn("El archivo unificado carece de columnas 'Tipo', 'Squad' o 'Mes'.")
+
+    df = _filter_by_chapter_leader(df, cl_col)  # type: ignore[arg-type]
+    if df.empty:
+        return _warn("Sin datos de Calidad para CL.")
+
+    df["Mes"] = df[mes_col].astype(MONTH_CAT)
+
+    cnt = (
+        df.groupby([squad_col, "Mes", tipo_col], observed=True)
+        .size()
+        .unstack(tipo_col, fill_value=0)
+        .reset_index()
+    )
+
+    # Estandarizar nombres de columnas de tipo por prefijo normalizado
+    def _col_pref(c: str) -> str:
+        cc = _norm_col(c)
+        if cc.startswith("PASE"):
+            return "Pase"
+        if cc.startswith("REVER"):
+            return "Reversion"
+        return c
+
+    new_cols = {}
+    for c in list(cnt.columns):
+        if isinstance(c, str):
+            pref = _col_pref(c)
+            if pref in {"Pase", "Reversion"} and c != pref:
+                new_cols[c] = pref
+    if new_cols:
+        cnt = cnt.rename(columns=new_cols)
+
+    if "Pase" not in cnt.columns:
+        cnt["Pase"] = 0
+    if "Reversion" not in cnt.columns:
+        cnt["Reversion"] = 0
+
+    cnt = cnt.rename(
+        columns={squad_col: "Squad", "Pase": "passes", "Reversion": "revs"}
+    )
+
+    # ⬅️ Guardas FINALES también aquí
+    if "passes" not in cnt.columns:
+        cnt["passes"] = 0
+    if "revs" not in cnt.columns:
+        cnt["revs"] = 0
+
+    full = cnt[(cnt["passes"] + cnt["revs"]) > 0]
+    if full.empty:
+        return _warn("Sin conteos de Pases/Reversiones para el CL.")
+
+    for sq in sorted(full["Squad"].astype(str).unique()):
+        _plot_squad(full[full["Squad"] == sq].sort_values("Mes"), sq)
+
 
 # ───────────── 2 · DEDICACIÓN  +  DURACIÓN SUBTAREAS ─────────────
 def plot_dedicacion_tm(file_path: str) -> None:
     """
-    Genera DOS gráficos independientes (se muestran uno tras otro):
+    Genera hasta DOS gráficos (mostrados uno tras otro):
 
-    1. Promedio de **Dedicación** (horas) por miembro de equipo.
-    2. Promedio de **Duración subtareas Registradas** (días) por miembro de equipo,
-       siempre que exista la columna «Duración subtareas Registradas (días)».
+      1) Promedio de **Dedicación** (horas) por miembro de equipo.
+      2) Promedio de **Duración de subtareas** (días) por miembro de equipo, si existe.
 
-    Cada llamada a ``plt.show()`` produce una figura; el mecanismo `capture()`
-    del módulo *presentation.py* capturará ambas imágenes y las apilará en la
-    misma diapositiva (imitando el comportamiento de TMD).
+    • Busca columnas por sinónimos (acentos/case/underscores tolerados).
+    • Filtra por CL por hoja.
+    • Si falta una métrica o no hay columna de persona, se omite solo ese gráfico.
+    • Compatible con pandas 2.x (sin mean(level=...)).
     """
-    df = read_any(file_path)
-    df = _filter_by_chapter_leader(df, "Nombre CL")
-    if df.empty:
-        return _warn("Sin dedicación para CL.")
 
-    COL_DED = "Dedicación"
-    COL_DUR = "Duración subtareas Registradas (días)"
+
+    # ── helpers ────────────────────────────────────────────────────────────────
+
+    def _has_cols(df_: pd.DataFrame, cols: list[str]) -> bool:
+        return all(c in df_.columns for c in cols)
 
     def _plot_barh(series: pd.Series, title: str, unidad: str) -> None:
-        """Helper reutilizable para barras horizontales con etiquetas."""
         plt.figure(figsize=(10, 6))
         plt.grid(axis="x", ls="--", alpha=0.4)
-
         bars = plt.barh(series.index.tolist(), series.values.tolist(), color="seagreen")
         for bar in bars:
-            width = bar.get_width()
+            width = float(bar.get_width())
             plt.text(
                 width + 0.03,
                 bar.get_y() + bar.get_height() / 2,
@@ -297,37 +502,133 @@ def plot_dedicacion_tm(file_path: str) -> None:
                 va="center",
                 fontsize=9,
             )
-
         plt.xlabel(f"Promedio ({unidad})")
         plt.title(title)
         plt.tight_layout()
 
-    # ── 1 · Dedicación (horas) ─────────────────────────────────────
-    avg_hrs = (
-        df.groupby("Nombres")[COL_DED]
-        .mean()
-        .sort_values()  # orden ascendente para barh
-    )
-    _plot_barh(avg_hrs, "Dedicación promedio por miembro de equipo", "h")
-    _maybe_show()  # ← primera imagen capturada
+    # ── hojas ─────────────────────────────────────────────────────────────────
+    try:
+        xls = pd.ExcelFile(file_path)
+        sheet_names = xls.sheet_names
+    except Exception:
+        sheet_names = [None]  # type: ignore[list-item]
 
-    # ── 2 · Duración subtareas (días) ──────────────────────────────
-    if COL_DUR in df.columns:
-        avg_days = df.groupby("Nombres")[COL_DUR].mean().sort_values()
-        _plot_barh(
-            avg_days,
-            "Duración subtareas promedio por miembro de equipo",
-            "días",
-        )
-        _maybe_show()  # ← segunda imagen capturada
+    # Sinónimos
+    CL_CANDS = ["CL", "Nombre CL", "Chapter Leader", "Chapter leader", "NombreCL"]
+    PERSON_CANDS = [
+        "Nombres",
+        "Nombre",
+        "Colaborador",
+        "Recurso",
+        "Nombre Recurso",
+        "Nombre Empleado",
+    ]
+    DEDIC_CANDS = [
+        "Dedicación",
+        "Dedicacion",
+        "Dedicación (h)",
+        "Horas dedicación",
+        "Horas dedicacion",
+        "DR",
+    ]
+    DUR_CANDS = [
+        "Duración subtareas Registradas (días)",
+        "Duración subtareas (días)",
+        "Duracion subtareas (dias)",
+        "Duración",
+        "Duracion",
+        "Subtask Duration (days)",
+    ]
+
+    dedic_series: pd.Series | None = None
+    dur_series: pd.Series | None = None
+
+    # ── detectar métricas hoja por hoja ───────────────────────────────────────
+    for sh in sheet_names:
+        try:
+            df = read_any(file_path, sheet_name=sh) if sh else read_any(file_path)
+        except Exception as exc:
+            logger.debug(f"No se pudo leer hoja {sh!r}: {exc}")
+            continue
+
+        cl_col = _find_col(df, CL_CANDS)
+        person_col = _find_col(df, PERSON_CANDS)
+        dedic_col = _find_col(df, DEDIC_CANDS)
+        dur_col = _find_col(df, DUR_CANDS)
+
+        # Filtrar por CL (y hacer COPIA para evitar SettingWithCopyWarning)
+        df_f = (df if cl_col is None else _filter_by_chapter_leader(df, cl_col)).copy()
+
+        # DEDICACIÓN: requiere person_col + dedic_col
+        if (
+            dedic_series is None
+            and person_col
+            and dedic_col
+            and _has_cols(df_f, [person_col, dedic_col])
+        ):
+            df_f.loc[:, dedic_col] = pd.to_numeric(df_f[dedic_col], errors="coerce")
+            s = df_f.groupby(person_col, dropna=False)[dedic_col].mean()
+            s = s.dropna().sort_values()
+            if not s.empty:
+                dedic_series = s
+
+        # DURACIÓN: requiere person_col + dur_col
+        if (
+            dur_series is None
+            and person_col
+            and dur_col
+            and _has_cols(df_f, [person_col, dur_col])
+        ):
+            df_f.loc[:, dur_col] = pd.to_numeric(df_f[dur_col], errors="coerce")
+            s = df_f.groupby(person_col, dropna=False)[dur_col].mean()
+            s = s.dropna().sort_values()
+            if not s.empty:
+                dur_series = s
+
+        if dedic_series is not None and dur_series is not None:
+            break
+
+    # ── graficar según disponibilidad ─────────────────────────────────────────
+    any_chart = False
+
+    if dedic_series is not None and not dedic_series.empty:
+        _plot_barh(dedic_series, "Dedicación promedio por miembro de equipo", "h")
+        _maybe_show()
+        any_chart = True
     else:
-        _warn(f"No se encontró la columna «{COL_DUR}» en el archivo.")
+        _warn(
+            "No se encontró métrica de Dedicación con columna de persona ('Nombres'); se omitirá ese gráfico."
+        )
+
+    if dur_series is not None and not dur_series.empty:
+        _plot_barh(
+            dur_series, "Duración subtareas promedio por miembro de equipo", "días"
+        )
+        _maybe_show()
+        any_chart = True
+    else:
+        _warn(
+            "No se encontró métrica de Duración de subtareas con columna de persona ('Nombres'); se omitirá ese gráfico."
+        )
+
+    if not any_chart:
+        _warn("Sin datos de Dedicación ni Duración para el CL activo.")
 
 
 # ───────────── 3 · NIVELES DE MADUREZ (LEP) ─────────────
 def plot_niveles_madurez(file_path: str) -> None:
     df = read_any(file_path)
-    df = _filter_by_chapter_leader(df, "Chapter Leader")
+    # 1) locate key columns
+    cl_col = _find_col(df, ["Chapter Leader", "Chapter leader", "Nombre CL", "CL"])
+    sq_col = _find_col(df, ["SQ", "SQUAD", "SQUAD NAME", "NOMBRE SQUAD", "Squad"])
+
+    if not cl_col:
+        return _warn("Falta columna de Chapter Leader en Madurez.")
+    if not sq_col:
+        return _warn("Falta columna de Squad en Madurez.")
+
+    # 2) filter by Chapter Leader (same unified logic as TMD)
+    df = _filter_by_chapter_leader(df, cl_col)
     if df.empty:
         return _warn("Sin registros LEP para CL.")
 
@@ -391,7 +692,14 @@ def plot_niveles_madurez(file_path: str) -> None:
 
 # ───────────── 4 · TMD ─────────────
 def _find_cl_column(df: pd.DataFrame) -> str | None:
-    candidates = ["Nombre CL", "cl_dev", "Chapter leader", "Chapter Leader", "NombreCL"]
+    candidates = [
+        "Nombre CL",
+        "cl_dev",
+        "Chapter leader",
+        "Chapter Leader",
+        "NombreCL",
+        "CL",
+    ]
     for c in df.columns:
         if normalize_name(c) in map(normalize_name, candidates):
             return c
@@ -479,28 +787,39 @@ def _plot_tmd(series: pd.Series, title: str) -> None:
 def plot_tiempo_desarrollo(file_path: str) -> None:
     df = read_any(file_path)
 
+    # find columns by synonyms (accent/case/underscore-insensitive)
+    tribu_col = _find_col(
+        df, ["Descripción tribu", "Descripcion tribu", "descripcion_tribu"]
+    )
+    squad_col = _find_col(
+        df, ["Descripción squad", "Descripcion squad", "descripcion_squad"]
+    )
+    metric_col = _find_col(
+        df, ["Tiempo Desarrollo", "Tiempo_Desarrollo", "tiempo desarrollo"]
+    )
+
     cl_col = _find_cl_column(df)
     if cl_col is None:
         return _warn("No se encontró columna de Chapter Leader en TMD.")
 
+    if metric_col is None:
+        return _warn("No se encontró la columna de métrica 'Tiempo Desarrollo'.")
+
+    if not tribu_col or not squad_col:
+        return _warn("No se encontraron columnas de 'Tribu' o 'Squad' para TMD.")
+
+    # From here on, use the resolved names:
     df = _filter_by_chapter_leader(df, cl_col)
     if df.empty:
         return _warn("Sin datos de TMD para CL.")
 
-    df["Tiempo Desarrollo"] = pd.to_numeric(df["Tiempo Desarrollo"], errors="coerce")
-
-    squad_avg = (
-        df.groupby("Descripción squad")["Tiempo Desarrollo"]
-        .mean()
-        .dropna()
-        .sort_values(ascending=False)
-    )
+    df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
 
     tribe_avg = (
-        df.groupby("Descripción tribu")["Tiempo Desarrollo"]
-        .mean()
-        .dropna()
-        .sort_values(ascending=False)
+        df.groupby(tribu_col)[metric_col].mean().dropna().sort_values(ascending=False)
+    )
+    squad_avg = (
+        df.groupby(squad_col)[metric_col].mean().dropna().sort_values(ascending=False)
     )
 
     _plot_tmd(

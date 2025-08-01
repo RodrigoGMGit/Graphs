@@ -64,6 +64,18 @@ outputs/        # Archivos PPTX resultantes (ignorados por git)
 
 El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
 
+## Tests
+
+Los tests se encuentran en el directorio `tests/`. Actualmente, `test_graphs_by_cl.py` verifica que la generación de gráficos para cada Chapter Leader se ejecute sin errores, asegurando que las funciones de graficado (`plot_calidad_pases`, `plot_dedicacion_tm`, `plot_niveles_madurez`, `plot_tiempo_desarrollo`) no fallen al procesar los datos.
+
+Para ejecutar los tests, asegúrate de tener las dependencias instaladas y luego usa `pytest`:
+
+```bash
+pytest
+```
+
+Los tests se configuraron para ejecutarse en un entorno sin interfaz gráfica (headless) usando `matplotlib.use("Agg")`, lo que los hace adecuados para entornos de integración continua (CI).
+
 ## Generar ejecutable
 
 El repositorio incluye `presentation_gui.spec` para crear una versión ejecutable
