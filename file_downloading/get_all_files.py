@@ -3,11 +3,20 @@ import time
 import urllib.parse
 
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env in the project root (or parent dirs)
+load_dotenv()
 
 # ---------- YOUR CREDENTIALS ----------
 TENANT_ID = os.getenv("AZ_TENANT_ID", "")
 CLIENT_ID = os.getenv("AZ_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("AZ_CLIENT_SECRET", "")
+
+if not (TENANT_ID and CLIENT_ID and CLIENT_SECRET):
+    raise RuntimeError(
+        "Missing AZ_TENANT_ID / AZ_CLIENT_ID / AZ_CLIENT_SECRET in environment (.env)."
+    )
 
 # ---------- YOUR FOLDER URLS ----------
 FOLDER_URLS = [
