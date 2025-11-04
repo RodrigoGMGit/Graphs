@@ -29,6 +29,7 @@ DMY_UNDERSCORE_2Y = "DMY_UNDERSCORE_2Y"  # 31_05_25  -> 2025-05-31 (assume 20YY)
 RX_DMY_DOTS = re.compile(r"(?<!\d)(\d{2})[.\-](\d{2})[.\-](\d{4})(?!\d)")
 RX_YMD_COMPACT = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
 RX_DMY_UNDERSCORE_2Y = re.compile(r"(?<!\d)(\d{2})_(\d{2})_(\d{2})(?!\d)")
+RX_DMY_COMPACT_2Y = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)")  # DDMMYY format (no separators)
 
 # Unicode dashes → ASCII hyphen
 DASH_MAP = str.maketrans({"\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2212": "-"})
@@ -58,7 +59,7 @@ FOLDERS: List[FolderRule] = [
     ),
     # SharePoint site — only "Reporte_NM_DD_MM_YY.xlsx"
     FolderRule(
-        url="https://credicorponline.sharepoint.com/sites/Equipodata/Documentos%20compartidos/Forms/AllItems.aspx?id=%2Fsites%2FEquipodata%2FDocumentos%20compartidos%2FGeneral%2FNivel%20de%20Madurez%2FReportes%20Resumen%2F202505&sortField=Modified&isAscending=false&viewid=6dc15532%2D2728%2D4c0b%2Dbff6%2D88c32f50d811&p=true&ga=1",
+        url="https://credicorponline.sharepoint.com/sites/Equipodata/Documentos%20compartidos/Forms/AllItems.aspx?id=%2Fsites%2FEquipodata%2FDocumentos%20compartidos%2FGeneral%2FNivel%20de%20Madurez%2FReportes%20Resumen&sortField=Modified&isAscending=false&viewid=6dc15532%2D2728%2D4c0b%2Dbff6%2D88c32f50d811&p=true&ga=1",
         prefix="Reporte_NM_",
         pattern=DMY_UNDERSCORE_2Y,
     ),
@@ -115,7 +116,13 @@ def parse_date_from_name(name: str, pattern: str) -> Optional[datetime]:
             y, mth, d = map(int, m.groups())
             return datetime(y, mth, d, tzinfo=timezone.utc)
     elif pattern == DMY_UNDERSCORE_2Y:
+        # Try underscore format first (DD_MM_YY)
         m = RX_DMY_UNDERSCORE_2Y.search(base)
+        if m:
+            d, mth, yy = map(int, m.groups())
+            return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
+        # Try compact format (DDMMYY) as fallback
+        m = RX_DMY_COMPACT_2Y.search(base)
         if m:
             d, mth, yy = map(int, m.groups())
             return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
@@ -263,6 +270,31 @@ def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
     return cand[0][2]
 
 
+def find_latest_month_folder(gc: GraphClient, drive_id: str, parent_folder_rel: str) -> Optional[str]:
+    """
+    Find the latest month folder (YYYYMM format) in the parent directory.
+    Returns the folder name (e.g., "202510") or None if no matching folders found.
+    """
+    items = gc.list_children(drive_id, parent_folder_rel)
+    
+    # Filter for folders matching YYYYMM pattern (6 digits)
+    month_folders = []
+    for it in items:
+        if "folder" not in it:
+            continue
+        name = it["name"]
+        # Check if name matches YYYYMM pattern (exactly 6 digits)
+        if re.match(r"^\d{6}$", name):
+            month_folders.append(name)
+    
+    if not month_folders:
+        return None
+    
+    # Sort by name descending (YYYYMM format naturally sorts correctly)
+    month_folders.sort(reverse=True)
+    return month_folders[0]
+
+
 def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
     saved_paths: list[Path] = []
 
@@ -274,6 +306,17 @@ def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
             host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
             site_id = gc.site_id(host, site_path)
             drive_id = gc.drive_id(site_id, root_kind, library)
+            
+            # Special handling for Reportes Resumen: find latest month folder
+            if "Reportes Resumen" in folder_rel:
+                print("  Detected Reportes Resumen folder, finding latest month subfolder...")
+                latest_month = find_latest_month_folder(gc, drive_id, folder_rel)
+                if latest_month:
+                    folder_rel = f"{folder_rel}/{latest_month}"
+                    print(f"  Using month folder: {latest_month}")
+                else:
+                    print("  Warning: No month folders found in Reportes Resumen, proceeding with parent folder")
+            
             items = gc.list_children(drive_id, folder_rel)
 
             if not items:
