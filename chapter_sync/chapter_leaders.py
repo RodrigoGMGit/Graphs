@@ -50,21 +50,41 @@ def _dedupe_pairs(pairs: Iterable[Tuple[str, str]]) -> List[Tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 def _list_excels(root: str) -> List[str]:
+    """List all Excel files recursively, returning relative paths."""
     try:
-        return [f for f in os.listdir(root) if f.lower().endswith(".xlsx")]
+        files = []
+        for current_root, dirs, filenames in os.walk(root):
+            for filename in filenames:
+                if filename.lower().endswith(".xlsx"):
+                    # Get relative path from root
+                    rel_path = os.path.relpath(
+                        os.path.join(current_root, filename), root
+                    )
+                    files.append(rel_path)
+        return files
     except FileNotFoundError:
         return []
 
 
 def _find_by_tokens(tokens: List[str]) -> Optional[str]:
+    """Find Excel files matching tokens, searching recursively."""
     files = _list_excels(graphs.FILES_DIR)
     if not files:
         return None
     toks = [_normalize(t) for t in tokens]
-    matches = [f for f in files if any(t in _normalize(f) for t in toks)]
+    # Match tokens against filename (not full path)
+    matches = [
+        f for f in files
+        if any(t in _normalize(os.path.basename(f)) for t in toks)
+    ]
     if not matches:
         return None
-    matches.sort(key=lambda f: os.path.getmtime(os.path.join(graphs.FILES_DIR, f)), reverse=True)
+    matches.sort(
+        key=lambda f: os.path.getmtime(
+            os.path.join(graphs.FILES_DIR, f)
+        ),
+        reverse=True,
+    )
     return os.path.join(graphs.FILES_DIR, matches[0])
 
 
@@ -88,7 +108,8 @@ def find_source_for(task: str) -> Optional[str]:
             key=lambda x: os.path.getmtime(os.path.join(graphs.FILES_DIR, x)),
             reverse=True,
         ):
-            n = _normalize(f)
+            # Match against filename, not full path
+            n = _normalize(os.path.basename(f))
             if "PASES" in n and ("REVERSION" in n or "REVERSIONES" in n):
                 return os.path.join(graphs.FILES_DIR, f)
         return None

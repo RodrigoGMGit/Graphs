@@ -149,15 +149,33 @@ def _filter_by_chapter_leader(df: pd.DataFrame, col_name: str) -> pd.DataFrame:
 
 # ─── Búsqueda automática de archivos ──────────────────────────────────
 def _find_file_by_keyword(keyword: str) -> str | None:
-    """Busca en FILES_DIR un único .xlsx cuyo nombre contenga keyword (normalizado)."""
-    files = [f for f in os.listdir(FILES_DIR) if f.lower().endswith(".xlsx")]
-    matches = [f for f in files if keyword in _normalize(f)]
+    """Busca en FILES_DIR un único .xlsx cuyo nombre contenga keyword.
+
+    Busca recursivamente en subdirectorios de FILES_DIR.
+    """
+    matches = []
+    # Recursively search for Excel files in FILES_DIR and subdirectories
+    for root, dirs, files in os.walk(FILES_DIR):
+        for file in files:
+            if file.lower().endswith(".xlsx"):
+                if keyword in _normalize(file):
+                    # Get relative path from FILES_DIR
+                    rel_path = os.path.relpath(
+                        os.path.join(root, file), FILES_DIR
+                    )
+                    matches.append(rel_path)
+
     if len(matches) == 1:
         return os.path.join(FILES_DIR, matches[0])
     if len(matches) == 0:
-        _warn(f"No se encontró archivo con «{keyword}» en {FILES_DIR}")
+        _warn(
+            f"No se encontró archivo con «{keyword}» en {FILES_DIR}"
+        )
     else:
-        _warn(f"Hay múltiples archivos con «{keyword}»; corrige antes de continuar")
+        _warn(
+            f"Hay múltiples archivos con «{keyword}»; "
+            "corrige antes de continuar"
+        )
     return None
 
 
