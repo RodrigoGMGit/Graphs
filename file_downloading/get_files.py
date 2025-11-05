@@ -360,6 +360,21 @@ def main():
         print("\n=== Done. Files saved ===")
         for p in saved:
             print(f" - {p}")
+        
+        # Process downloaded files: rename, date, and move to chapter_sync/files
+        print("\n=== Processing downloaded files ===")
+        try:
+            from chapter_sync.file_processor import process_downloaded_files
+            processed = process_downloaded_files(saved)
+            if processed:
+                print(f"Successfully processed {len(processed)} file(s):")
+                for source, dest in processed:
+                    print(f"  {source.name} → {dest}")
+            else:
+                print("No files were processed.")
+        except Exception as e:
+            print(f"Warning: File processing failed: {e}")
+            print("Files remain in downloads directory. You can process them manually.")
     else:
         print("\nNo files were saved (nothing matched your rules).")
 

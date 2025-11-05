@@ -204,3 +204,10 @@ __marimo__/
 chapter_config.json
 chapter_sync/outputs/
 downloads
+
+# Parquet cache files
+*.parquet
+**/cached_files/
+
+# Excel files
+*.xlsx

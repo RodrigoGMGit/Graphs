@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import unicodedata
+from datetime import datetime
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -152,6 +153,8 @@ def _find_file_by_keyword(keyword: str) -> str | None:
     """Busca en FILES_DIR un único .xlsx cuyo nombre contenga keyword.
 
     Busca recursivamente en subdirectorios de FILES_DIR.
+    Si hay múltiples coincidencias, retorna la más reciente según fecha
+    en el nombre.
     """
     matches = []
     # Recursively search for Excel files in FILES_DIR and subdirectories
@@ -165,18 +168,38 @@ def _find_file_by_keyword(keyword: str) -> str | None:
                     )
                     matches.append(rel_path)
 
-    if len(matches) == 1:
-        return os.path.join(FILES_DIR, matches[0])
     if len(matches) == 0:
         _warn(
             f"No se encontró archivo con «{keyword}» en {FILES_DIR}"
         )
-    else:
-        _warn(
-            f"Hay múltiples archivos con «{keyword}»; "
-            "corrige antes de continuar"
-        )
-    return None
+        return None
+
+    if len(matches) == 1:
+        return os.path.join(FILES_DIR, matches[0])
+
+    # Multiple matches: sort by date in filename (latest first)
+    # Import here to avoid circular dependency
+    from chapter_sync.file_processor import (
+        extract_date_from_standardized_filename,
+    )
+
+    def get_sort_key(rel_path: str) -> tuple[datetime, float]:
+        """Return (date_from_filename, mtime) for sorting."""
+        full_path = os.path.join(FILES_DIR, rel_path)
+        filename = os.path.basename(rel_path)
+        date_obj = extract_date_from_standardized_filename(filename)
+        mtime = os.path.getmtime(full_path)
+        # Use date from filename if available, otherwise use old date
+        sort_date = date_obj if date_obj else datetime(1970, 1, 1)
+        return (sort_date, mtime)
+
+    matches.sort(key=get_sort_key, reverse=True)
+    latest = matches[0]
+    _warn(
+        f"Hay múltiples archivos con «{keyword}»; "
+        f"usando el más reciente: {latest}"
+    )
+    return os.path.join(FILES_DIR, latest)
 
 
 def _resolve_path(cli_arg: str | None, task_key: str) -> str | None:

@@ -67,7 +67,11 @@ def _list_excels(root: str) -> List[str]:
 
 
 def _find_by_tokens(tokens: List[str]) -> Optional[str]:
-    """Find Excel files matching tokens, searching recursively."""
+    """Find Excel files matching tokens, searching recursively.
+
+    Returns the latest file based on date in filename (YYYY-MM-DD format),
+    falling back to modification time if date not found.
+    """
     files = _list_excels(graphs.FILES_DIR)
     if not files:
         return None
@@ -79,12 +83,24 @@ def _find_by_tokens(tokens: List[str]) -> Optional[str]:
     ]
     if not matches:
         return None
-    matches.sort(
-        key=lambda f: os.path.getmtime(
-            os.path.join(graphs.FILES_DIR, f)
-        ),
-        reverse=True,
+
+    # Sort by date in filename (latest first), fallback to mod time
+    from chapter_sync.file_processor import (
+        extract_date_from_standardized_filename,
     )
+    from datetime import datetime
+
+    def get_sort_key(rel_path: str) -> tuple[datetime, float]:
+        """Return (date_from_filename, mtime) for sorting."""
+        full_path = os.path.join(graphs.FILES_DIR, rel_path)
+        filename = os.path.basename(rel_path)
+        date_obj = extract_date_from_standardized_filename(filename)
+        mtime = os.path.getmtime(full_path)
+        # Use date from filename if available, otherwise use old date
+        sort_date = date_obj if date_obj else datetime(1970, 1, 1)
+        return (sort_date, mtime)
+
+    matches.sort(key=get_sort_key, reverse=True)
     return os.path.join(graphs.FILES_DIR, matches[0])
 
 
@@ -103,9 +119,25 @@ def find_source_for(task: str) -> Optional[str]:
         ])
         if p:
             return p
+        # Sort by date in filename (latest first), fallback to mod time
+        from chapter_sync.file_processor import (
+            extract_date_from_standardized_filename,
+        )
+        from datetime import datetime
+
+        def get_sort_key(rel_path: str) -> tuple[datetime, float]:
+            """Return (date_from_filename, mtime) for sorting."""
+            full_path = os.path.join(graphs.FILES_DIR, rel_path)
+            filename = os.path.basename(rel_path)
+            date_obj = extract_date_from_standardized_filename(filename)
+            mtime = os.path.getmtime(full_path)
+            # Use date from filename if available, otherwise use old date
+            sort_date = date_obj if date_obj else datetime(1970, 1, 1)
+            return (sort_date, mtime)
+
         for f in sorted(
             _list_excels(graphs.FILES_DIR),
-            key=lambda x: os.path.getmtime(os.path.join(graphs.FILES_DIR, x)),
+            key=get_sort_key,
             reverse=True,
         ):
             # Match against filename, not full path

@@ -147,21 +147,49 @@ def test_backward_compatibility_root_level(temp_files_dir):
         graphs.FILES_DIR = original_files_dir
 
 
-def test_multiple_matches_warning(temp_files_dir):
-    """Test that multiple matches produce appropriate warning."""
+def test_multiple_matches_latest_selected(temp_files_dir):
+    """Test that multiple matches return the latest file by date."""
     original_files_dir = graphs.FILES_DIR
     try:
         graphs.FILES_DIR = temp_files_dir
 
-        # Create another file with similar name
-        duplicate = os.path.join(temp_files_dir, "Calidad", "Calidad2.xlsx")
-        Path(duplicate).touch()
+        # Create files with dates in names
+        old_file = os.path.join(
+            temp_files_dir, "Calidad", "Calidad-2025-01-15.xlsx"
+        )
+        new_file = os.path.join(
+            temp_files_dir, "Calidad", "Calidad-2025-10-27.xlsx"
+        )
+        Path(old_file).touch()
+        Path(new_file).touch()
 
-        # Should return None and log warning
+        # Should return the latest file (by date in filename)
         result = graphs._find_file_by_keyword("CALIDAD")
-        # With multiple matches, should return None (or could be either)
-        # The function logs a warning but behavior may vary
-        assert result is None or result is not None  # Either is acceptable
+        assert result is not None
+        assert "2025-10-27" in result  # Latest date
+    finally:
+        graphs.FILES_DIR = original_files_dir
+
+
+def test_multiple_matches_no_date_fallback(temp_files_dir):
+    """Test that files without dates fall back to modification time."""
+    original_files_dir = graphs.FILES_DIR
+    try:
+        graphs.FILES_DIR = temp_files_dir
+
+        # Create files without dates
+        file1 = os.path.join(temp_files_dir, "Calidad", "Calidad.xlsx")
+        file2 = os.path.join(temp_files_dir, "Calidad", "Calidad2.xlsx")
+        Path(file1).touch()
+        # Wait a bit and create second file (newer modification time)
+        import time
+        time.sleep(0.1)
+        Path(file2).touch()
+
+        # Should return one of them (newest by mtime)
+        result = graphs._find_file_by_keyword("CALIDAD")
+        assert result is not None
+        assert "Calidad" in result
     finally:
         graphs.FILES_DIR = original_files_dir
 
