@@ -71,6 +71,14 @@ FOLDERS: List[FolderRule] = [
     ),
 ]
 
+# Mapping from standardized type names to prefixes
+TYPE_TO_PREFIX = {
+    "Calidad": "Pases a Producción y Reversiones",
+    "TMD": "BD Dashboard OKR T.Desarrollo",
+    "NivelesMadurez": "Reporte_NM_",
+    "DR": "dashboard-",
+}
+
 
 # ==== Utilities ====
 def sanitize_filename(name: str) -> str:
@@ -295,13 +303,19 @@ def find_latest_month_folder(gc: GraphClient, drive_id: str, parent_folder_rel: 
     return month_folders[0]
 
 
-def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
+def run_downloads(
+    gc: GraphClient,
+    rules: List[FolderRule],
+    quiet: bool = False,
+    log_func=None
+) -> list[Path]:
     saved_paths: list[Path] = []
 
     for rule in rules:
-        print(
-            f"\n=== Processing folder ===\n{rule.url}\nRule: prefix='{rule.prefix}', pattern={rule.pattern}"
-        )
+        if not quiet:
+            print(
+                f"\n=== Processing folder ===\n{rule.url}\nRule: prefix='{rule.prefix}', pattern={rule.pattern}"
+            )
         try:
             host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
             site_id = gc.site_id(host, site_path)
@@ -309,23 +323,28 @@ def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
             
             # Special handling for Reportes Resumen: find latest month folder
             if "Reportes Resumen" in folder_rel:
-                print("  Detected Reportes Resumen folder, finding latest month subfolder...")
+                if not quiet:
+                    print("  Detected Reportes Resumen folder, finding latest month subfolder...")
                 latest_month = find_latest_month_folder(gc, drive_id, folder_rel)
                 if latest_month:
                     folder_rel = f"{folder_rel}/{latest_month}"
-                    print(f"  Using month folder: {latest_month}")
+                    if not quiet:
+                        print(f"  Using month folder: {latest_month}")
                 else:
-                    print("  Warning: No month folders found in Reportes Resumen, proceeding with parent folder")
+                    if not quiet:
+                        print("  Warning: No month folders found in Reportes Resumen, proceeding with parent folder")
             
             items = gc.list_children(drive_id, folder_rel)
 
             if not items:
-                print("  No items found in this folder.")
+                if not quiet:
+                    print("  No items found in this folder.")
                 continue
 
             chosen = choose_latest(items, rule)
             if not chosen:
-                print("  No matching .xlsx files for this rule.")
+                if not quiet:
+                    print("  No matching .xlsx files for this rule.")
                 continue
 
             # Prepare destination path
@@ -336,10 +355,17 @@ def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
             filename = sanitize_filename(chosen["name"])
             dest = ensure_unique_path(out_dir, filename)
 
-            # Download
-            print(f"  Downloading: {chosen['name']} → {dest}")
+            # Download - only show essential message
+            if quiet:
+                if log_func:
+                    log_func(f"Descargando: {chosen['name']}")
+                else:
+                    print(f"Descargando: {chosen['name']}")
+            else:
+                print(f"  Downloading: {chosen['name']} → {dest}")
             saved = gc.download_item(drive_id, chosen["id"], dest)
-            print(f"  Saved: {saved}")
+            if not quiet:
+                print(f"  Saved: {saved}")
             saved_paths.append(saved)
 
         except requests.HTTPError as e:
@@ -347,6 +373,167 @@ def run_downloads(gc: GraphClient, rules: List[FolderRule]) -> list[Path]:
         except Exception as ex:
             print(f"  ERROR: {ex}")
 
+    return saved_paths
+
+
+def discover_latest_file_date(file_type: str, logger=None) -> Optional[datetime]:
+    """Discover the date of the latest file on the server for a given type without downloading.
+    
+    This function reuses the logic from run_downloads and choose_latest to find
+    the most recent file on the server, but only returns its date without downloading.
+    
+    Args:
+        file_type: Standardized type name (Calidad, DR, NivelesMadurez, TMD)
+        logger: Optional logger instance (if None, uses print)
+        
+    Returns:
+        datetime object with the date of the latest file, or None if:
+        - File type not found
+        - No matching files found
+        - Connection/API error occurred
+    """
+    if logger is None:
+        def log_func(msg):
+            pass  # Silent in discovery mode
+    else:
+        def log_func(msg):
+            logger.debug(msg)
+    
+    # Get prefix for requested type
+    if file_type not in TYPE_TO_PREFIX:
+        if logger:
+            logger.warning(f"Tipo de archivo desconocido '{file_type}' para discovery")
+        return None
+    
+    prefix = TYPE_TO_PREFIX[file_type]
+    
+    # Find the rule for this prefix
+    rule = None
+    for r in FOLDERS:
+        if r.prefix == prefix:
+            rule = r
+            break
+    
+    if not rule:
+        if logger:
+            logger.warning(f"No se encontró regla de descarga para {file_type}")
+        return None
+    
+    try:
+        # Initialize Graph client
+        gc = GraphClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+        
+        # Get folder info
+        host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
+        site_id = gc.site_id(host, site_path)
+        drive_id = gc.drive_id(site_id, root_kind, library)
+        
+        # Special handling for Reportes Resumen: find latest month folder
+        if "Reportes Resumen" in folder_rel:
+            latest_month = find_latest_month_folder(gc, drive_id, folder_rel)
+            if latest_month:
+                folder_rel = f"{folder_rel}/{latest_month}"
+        
+        # List files
+        items = gc.list_children(drive_id, folder_rel)
+        
+        if not items:
+            return None
+        
+        # Find latest file using existing logic
+        chosen = choose_latest(items, rule)
+        if not chosen:
+            return None
+        
+        # Extract date from filename
+        filename = chosen["name"]
+        date_obj = parse_date_from_name(filename, rule.pattern)
+        
+        return date_obj
+        
+    except Exception as e:
+        if logger:
+            logger.debug(f"Error durante discovery para {file_type}: {e}")
+        return None
+
+
+def download_specific_types(types_to_download: list[str], logger=None) -> list[Path]:
+    """Download files for specific types only.
+    
+    Args:
+        types_to_download: List of standardized type names (Calidad, DR, NivelesMadurez, TMD)
+        logger: Optional logger instance (if None, uses print)
+        
+    Returns:
+        List of paths to downloaded files
+    """
+    if logger is None:
+        def log_func(msg):
+            print(msg)
+    else:
+        def log_func(msg):
+            logger.info(msg)
+    
+    if not types_to_download:
+        return []
+    
+    # Get prefixes for requested types
+    prefixes_to_download = set()
+    for file_type in types_to_download:
+        if file_type in TYPE_TO_PREFIX:
+            prefixes_to_download.add(TYPE_TO_PREFIX[file_type])
+        else:
+            log_func(f"Advertencia: Tipo de archivo desconocido '{file_type}', omitiendo")
+    
+    if not prefixes_to_download:
+        log_func("No hay tipos válidos para descargar")
+        return []
+    
+    # Filter FOLDERS to only include rules for requested types
+    filtered_rules = [
+        rule for rule in FOLDERS
+        if rule.prefix in prefixes_to_download
+    ]
+    
+    if not filtered_rules:
+        log_func("No se encontraron reglas de descarga para los tipos solicitados")
+        return []
+    
+    # Show message for each type being downloaded
+    for file_type in types_to_download:
+        if file_type in TYPE_TO_PREFIX:
+            log_func(f"Buscando archivos más recientes para {file_type}")
+    
+    saved_paths: list[Path] = []
+    
+    try:
+        # Initialize Graph client (silently)
+        gc = GraphClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+        
+        # Run downloads with filtered rules (quiet mode for less verbose output)
+        saved_paths = run_downloads(gc, filtered_rules, quiet=True, log_func=log_func)
+        
+        if saved_paths:
+            log_func(f"Descarga completada: {len(saved_paths)} archivo(s)")
+        else:
+            log_func("No se encontraron archivos nuevos para descargar.")
+            
+    except requests.HTTPError as e:
+        error_msg = f"Error HTTP al descargar archivos: {e.response.status_code} {e.response.text}"
+        log_func(error_msg)
+        if logger:
+            logger.error(error_msg, exc_info=True)
+    except requests.ConnectionError as e:
+        error_msg = f"Error de conexión al descargar archivos: {e}"
+        log_func(error_msg)
+        if logger:
+            logger.error(error_msg, exc_info=True)
+    except Exception as e:
+        error_msg = f"Error inesperado al descargar archivos: {e}"
+        log_func(error_msg)
+        if logger:
+            logger.error(error_msg, exc_info=True)
+    
     return saved_paths
 
 

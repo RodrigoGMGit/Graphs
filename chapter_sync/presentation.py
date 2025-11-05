@@ -63,6 +63,13 @@ def _imgs(k, f):
 
 
 def main() -> None:
+    # Check and download files if needed
+    try:
+        from chapter_sync.file_processor import check_and_download_if_needed
+        check_and_download_if_needed(Path(graphs.FILES_DIR))
+    except Exception as e:
+        print(f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes.")
+
     imgs_mad = _imgs("madurez", graphs.plot_niveles_madurez)
     imgs_ded = _imgs("dedicacion", graphs.plot_dedicacion_tm)
     imgs_tmd = _imgs("tiempo", graphs.plot_tiempo_desarrollo)  # 2

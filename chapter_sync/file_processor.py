@@ -18,7 +18,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Add project root to path for imports
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 logger = logging.getLogger(__name__)
+
+# Days threshold for automatic download
+DAYS_THRESHOLD = 6
 
 # Pattern keys matching file_downloading/get_files.py
 DMY_DOTS = "DMY_DOTS"  # 09.06.2025  or 09-06-2025
@@ -201,7 +209,7 @@ def process_downloaded_files(downloaded_paths: Optional[list[Path]] = None) -> l
                 files_to_process.append(file_path)
     
     if not files_to_process:
-        logger.info("No files to process in downloads directory")
+        logger.info("No hay archivos para procesar en el directorio de descargas")
         return processed_files
     
     for file_path in files_to_process:
@@ -212,8 +220,8 @@ def process_downloaded_files(downloaded_paths: Optional[list[Path]] = None) -> l
             file_info = _identify_file_type(filename)
             if not file_info:
                 logger.warning(
-                    f"Could not identify file type for {filename}. "
-                    "Skipping. Expected prefixes: {list(PREFIX_MAPPING.keys())}"
+                    f"No se pudo identificar el tipo de archivo para {filename}. "
+                    f"Omitiendo. Prefijos esperados: {list(PREFIX_MAPPING.keys())}"
                 )
                 continue
             
@@ -223,8 +231,8 @@ def process_downloaded_files(downloaded_paths: Optional[list[Path]] = None) -> l
             date_obj = parse_date_from_filename(filename, pattern)
             if not date_obj:
                 logger.warning(
-                    f"Could not extract date from filename: {filename}. "
-                    "This should not happen. Skipping file."
+                    f"No se pudo extraer la fecha del nombre de archivo: {filename}. "
+                    "Esto no debería ocurrir. Omitiendo archivo."
                 )
                 continue
             
@@ -249,20 +257,223 @@ def process_downloaded_files(downloaded_paths: Optional[list[Path]] = None) -> l
                 dest_path = dest_dir / f"{base_name} ({counter}).xlsx"
                 counter += 1
                 if counter > 1000:  # Safety limit
-                    logger.error(f"Too many duplicate files for {new_filename}")
+                    logger.error(f"Demasiados archivos duplicados para {new_filename}")
                     break
             
             # Move file (this removes original)
             shutil.move(str(file_path), str(dest_path))
-            logger.info(f"Moved: {file_path} → {dest_path}")
+            logger.info(f"Movido: {file_path} → {dest_path}")
             processed_files.append((file_path, dest_path))
             
         except OSError as e:
-            logger.error(f"Failed to process {file_path}: {e}")
+            logger.error(f"Error al procesar {file_path}: {e}")
             continue
         except Exception as e:
-            logger.error(f"Unexpected error processing {file_path}: {e}", exc_info=True)
+            logger.error(f"Error inesperado al procesar {file_path}: {e}", exc_info=True)
             continue
     
     return processed_files
+
+
+def get_types_needing_download(files_dir: Path) -> dict[str, dict]:
+    """Check which file types need to be downloaded based on date thresholds.
+    
+    For each file type (Calidad, DR, NivelesMadurez, TMD), checks if:
+    - No files exist for that type, OR
+    - The latest file is older than DAYS_THRESHOLD days
+    
+    Args:
+        files_dir: Directory containing subdirectories for each file type
+        
+    Returns:
+        Dictionary mapping file type to dict with:
+        - 'needs_download': bool indicating if download is needed
+        - 'latest_date': Optional[datetime] with the latest local file date (None if no files)
+    """
+    result: dict[str, dict] = {}
+    file_types = ["Calidad", "DR", "NivelesMadurez", "TMD"]
+    today = datetime.now().date()
+    
+    for file_type in file_types:
+        type_dir = files_dir / file_type
+        latest_date: Optional[datetime] = None
+        needs_download = False
+        
+        if not type_dir.exists():
+            # No directory means no files, need download
+            logger.info(f"No se encontró directorio de archivos para {file_type}, se descargará")
+            needs_download = True
+        else:
+            # Find all .xlsx files in the type directory
+            xlsx_files = list(type_dir.glob("*.xlsx"))
+            
+            if not xlsx_files:
+                # No files found, need download
+                logger.info(f"No se encontraron archivos para {file_type}, se descargará")
+                needs_download = True
+            else:
+                # Extract dates from all files and find the latest
+                for file_path in xlsx_files:
+                    date_obj = extract_date_from_standardized_filename(file_path.name)
+                    if date_obj:
+                        if latest_date is None or date_obj > latest_date:
+                            latest_date = date_obj
+                
+                if latest_date is None:
+                    # Could not extract dates from any file, need download
+                    logger.warning(
+                        f"No se pudieron extraer fechas de ningún archivo para {file_type}, "
+                        "se descargará para asegurar que tengamos archivos válidos"
+                    )
+                    needs_download = True
+                else:
+                    # Calculate days since latest file
+                    days_old = (today - latest_date.date()).days
+                    
+                    if days_old > DAYS_THRESHOLD:
+                        logger.info(
+                            f"{file_type}: el archivo más reciente tiene {days_old} días "
+                            f"(umbral: {DAYS_THRESHOLD}), se descargará"
+                        )
+                        needs_download = True
+                    else:
+                        logger.debug(
+                            f"{file_type}: el archivo más reciente tiene {days_old} días, "
+                            f"dentro del umbral ({DAYS_THRESHOLD} días)"
+                        )
+        
+        result[file_type] = {
+            "needs_download": needs_download,
+            "latest_date": latest_date
+        }
+    
+    return result
+
+
+def check_and_download_if_needed(files_dir: Path) -> None:
+    """Check file dates and download if needed.
+    
+    This function:
+    1. Checks which file types need download (based on date thresholds)
+    2. For each type needing download, discovers the latest remote file date
+    3. Compares remote date with local date to avoid unnecessary downloads
+    4. Downloads only the types that actually need it (remote date is newer)
+    5. Processes downloaded files automatically
+    6. Logs all operations and errors
+    
+    Args:
+        files_dir: Directory containing subdirectories for each file type
+    """
+    # Check which types need download and get their local dates
+    types_info = get_types_needing_download(files_dir)
+    
+    # Filter to only types that need download
+    types_needing_download = [
+        file_type for file_type, info in types_info.items()
+        if info["needs_download"]
+    ]
+    
+    if not types_needing_download:
+        logger.debug("Todos los tipos de archivo están actualizados, no se necesita descarga")
+        return
+    
+    logger.info(
+        f"Tipos de archivo que necesitan descarga ({len(types_needing_download)}): "
+        f"{', '.join(types_needing_download)}"
+    )
+    
+    # Import here to avoid circular dependency
+    from file_downloading.get_files import download_specific_types, discover_latest_file_date
+    
+    # Download each type individually, after checking remote dates
+    types_to_actually_download = []
+    
+    for file_type in types_needing_download:
+        local_date = types_info[file_type]["latest_date"]
+        
+        # Discover remote file date
+        logger.info(f"Verificando fecha de archivo remoto para {file_type}")
+        remote_date = discover_latest_file_date(file_type, logger=logger)
+        
+        if remote_date is None:
+            # Discovery failed - cannot download anyway, skip
+            logger.warning(
+                f"No se pudo obtener fecha del archivo remoto para {file_type}. "
+                "Omitiendo descarga (no se puede descargar de todas formas)."
+            )
+            continue
+        
+        # Compare dates (only date part, ignore time/timezone)
+        remote_date_only = remote_date.date()
+        
+        if local_date is None:
+            # No local file, proceed with download
+            logger.info(
+                f"{file_type}: No hay archivo local, procediendo con descarga "
+                f"(archivo remoto: {remote_date_only})"
+            )
+            types_to_actually_download.append(file_type)
+        else:
+            local_date_only = local_date.date()
+            
+            if remote_date_only == local_date_only:
+                # Same date, skip download
+                logger.info(
+                    f"{file_type}: Archivo remoto tiene misma fecha que local "
+                    f"({local_date_only}), omitiendo descarga"
+                )
+            elif remote_date_only < local_date_only:
+                # Remote is older, skip download
+                logger.info(
+                    f"{file_type}: Archivo remoto es más antiguo que local "
+                    f"(remoto: {remote_date_only}, local: {local_date_only}), omitiendo descarga"
+                )
+            else:
+                # Remote is newer, proceed with download
+                logger.info(
+                    f"{file_type}: Archivo remoto es más reciente que local "
+                    f"(remoto: {remote_date_only}, local: {local_date_only}), procediendo con descarga"
+                )
+                types_to_actually_download.append(file_type)
+    
+    if not types_to_actually_download:
+        logger.info("No hay archivos para descargar después de comparar fechas")
+        return
+    
+    logger.info(
+        f"Archivos a descargar después de comparar fechas ({len(types_to_actually_download)}): "
+        f"{', '.join(types_to_actually_download)}"
+    )
+    
+    # Download each type
+    for file_type in types_to_actually_download:
+        try:
+            logger.info(f"Buscando archivos más recientes para {file_type}")
+            
+            # Download this specific type
+            downloaded_paths = download_specific_types([file_type], logger=logger)
+            
+            if downloaded_paths:
+                logger.info(f"Descarga completada para {file_type}: {len(downloaded_paths)} archivo(s)")
+                
+                # Process downloaded files (rename, move to files_dir)
+                processed = process_downloaded_files(downloaded_paths)
+                if processed:
+                    logger.info(
+                        f"Archivos procesados para {file_type}: "
+                        f"{len(processed)} archivo(s) movidos a {files_dir}"
+                    )
+                else:
+                    logger.warning(f"No se pudieron procesar archivos descargados para {file_type}")
+            else:
+                logger.warning(
+                    f"No se descargaron archivos para {file_type}. "
+                    "Continuando con archivos existentes."
+                )
+                
+        except Exception as e:
+            error_msg = f"Error al descargar {file_type}: {type(e).__name__}: {e}"
+            logger.error(error_msg, exc_info=True)
+            logger.info(f"Continuando con archivos existentes para {file_type}")
+            # Continue with next type, don't block execution
 

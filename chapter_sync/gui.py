@@ -325,6 +325,54 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
         graphs.FILES_DIR = data_dir
         graphs.CACHE_DIR = os.path.join(data_dir, graphs.CACHE_SUBDIR)
 
+        # Check and download files if needed
+        try:
+            from chapter_sync.file_processor import check_and_download_if_needed
+            import logging
+            import sys
+            from pathlib import Path
+
+            # Ensure project root is in path for file_downloading imports
+            project_root = Path(__file__).resolve().parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
+            # Create handler that uses log_message for GUI output
+            class GUILogHandler(logging.Handler):
+                def emit(self, record):
+                    msg = self.format(record)
+                    if record.levelno >= logging.ERROR:
+                        level = "error"
+                    elif record.levelno >= logging.WARNING:
+                        level = "warn"
+                    else:
+                        level = "info"
+                    log_message(msg, level)
+
+            gui_handler = GUILogHandler()
+            gui_handler.setFormatter(logging.Formatter("%(message)s"))
+
+            # Configure loggers for file_processor and file_downloading
+            file_processor_logger = logging.getLogger(
+                "chapter_sync.file_processor"
+            )
+            file_downloading_logger = logging.getLogger(
+                "file_downloading.get_files"
+            )
+
+            for logger in [file_processor_logger, file_downloading_logger]:
+                logger.setLevel(logging.INFO)
+                logger.addHandler(gui_handler)
+
+            # Check and download
+            check_and_download_if_needed(Path(data_dir))
+        except Exception as e:
+            log_message(
+                f"Error al verificar/descargar archivos: {e}. "
+                "Continuando con archivos existentes.",
+                "warn"
+            )
+
         presentation.main()
 
         # La ruta de salida depende de si la aplicación está congelada

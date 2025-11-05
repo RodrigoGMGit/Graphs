@@ -31,6 +31,7 @@ import seaborn as sns
 from matplotlib import cm, colors
 
 from chapter_sync.config import config
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -195,9 +196,9 @@ def _find_file_by_keyword(keyword: str) -> str | None:
 
     matches.sort(key=get_sort_key, reverse=True)
     latest = matches[0]
+    latest_filename = os.path.basename(latest)
     _warn(
-        f"Hay múltiples archivos con «{keyword}»; "
-        f"usando el más reciente: {latest}"
+        f"Procesando el archivo: {latest_filename}"
     )
     return os.path.join(FILES_DIR, latest)
 
@@ -572,17 +573,17 @@ def plot_dedicacion_tm(file_path: str) -> None:
         "Horas dedicacion",
         "DR",
     ]
-    DUR_CANDS = [
-        "Duración subtareas Registradas (días)",
-        "Duración subtareas (días)",
-        "Duracion subtareas (dias)",
-        "Duración",
-        "Duracion",
-        "Subtask Duration (days)",
-    ]
+    # DUR_CANDS = [
+    #     "Duración subtareas Registradas (días)",
+    #     "Duración subtareas (días)",
+    #     "Duracion subtareas (dias)",
+    #     "Duración",
+    #     "Duracion",
+    #     "Subtask Duration (days)",
+    # ]
 
     dedic_series: pd.Series | None = None
-    dur_series: pd.Series | None = None
+    # dur_series: pd.Series | None = None  # Temporalmente deshabilitado
 
     # ── detectar métricas hoja por hoja ───────────────────────────────────────
     for sh in sheet_names:
@@ -595,7 +596,7 @@ def plot_dedicacion_tm(file_path: str) -> None:
         cl_col = _find_col(df, CL_CANDS)
         person_col = _find_col(df, PERSON_CANDS)
         dedic_col = _find_col(df, DEDIC_CANDS)
-        dur_col = _find_col(df, DUR_CANDS)
+        # dur_col = _find_col(df, DUR_CANDS)  # Temporalmente deshabilitado
 
         # Filtrar por CL (y hacer COPIA para evitar SettingWithCopyWarning)
         df_f = (df if cl_col is None else _filter_by_chapter_leader(df, cl_col)).copy()
@@ -614,20 +615,23 @@ def plot_dedicacion_tm(file_path: str) -> None:
                 dedic_series = s
 
         # DURACIÓN: requiere person_col + dur_col
-        if (
-            dur_series is None
-            and person_col
-            and dur_col
-            and _has_cols(df_f, [person_col, dur_col])
-        ):
-            df_f.loc[:, dur_col] = pd.to_numeric(df_f[dur_col], errors="coerce")
-            s = df_f.groupby(person_col, dropna=False)[dur_col].mean()
-            s = s.dropna().sort_values()
-            if not s.empty:
-                dur_series = s
+        # Temporalmente deshabilitado - no hay columna de persona en Actividades
+        # if (
+        #     dur_series is None
+        #     and person_col
+        #     and dur_col
+        #     and _has_cols(df_f, [person_col, dur_col])
+        # ):
+        #     df_f.loc[:, dur_col] = pd.to_numeric(df_f[dur_col], errors="coerce")
+        #     s = df_f.groupby(person_col, dropna=False)[dur_col].mean()
+        #     s = s.dropna().sort_values()
+        #     if not s.empty:
+        #         dur_series = s
 
-        if dedic_series is not None and dur_series is not None:
-            break
+        # if dedic_series is not None and dur_series is not None:
+        #     break
+        if dedic_series is not None:
+            break  # Solo necesitamos dedicación por ahora
 
     # ── graficar según disponibilidad ─────────────────────────────────────────
     any_chart = False
@@ -641,16 +645,17 @@ def plot_dedicacion_tm(file_path: str) -> None:
             "No se encontró métrica de Dedicación con columna de persona ('Nombres'); se omitirá ese gráfico."
         )
 
-    if dur_series is not None and not dur_series.empty:
-        _plot_barh(
-            dur_series, "Duración subtareas promedio por miembro de equipo", "días"
-        )
-        _maybe_show()
-        any_chart = True
-    else:
-        _warn(
-            "No se encontró métrica de Duración de subtareas con columna de persona ('Nombres'); se omitirá ese gráfico."
-        )
+    # Temporalmente deshabilitado - no hay columna de persona en Actividades
+    # if dur_series is not None and not dur_series.empty:
+    #     _plot_barh(
+    #         dur_series, "Duración subtareas promedio por miembro de equipo", "días"
+    #     )
+    #     _maybe_show()
+    #     any_chart = True
+    # else:
+    #     _warn(
+    #         "No se encontró métrica de Duración de subtareas con columna de persona ('Nombres'); se omitirá ese gráfico."
+    #     )
 
     if not any_chart:
         _warn("Sin datos de Dedicación ni Duración para el CL activo.")
@@ -917,6 +922,13 @@ def main(argv: list[str] | None = None) -> None:
         FILES_DIR = DATA_DIR
         CACHE_DIR = os.path.join(FILES_DIR, CACHE_SUBDIR)
     os.makedirs(CACHE_DIR, exist_ok=True)
+
+    # Check and download files if needed
+    try:
+        from chapter_sync.file_processor import check_and_download_if_needed
+        check_and_download_if_needed(Path(FILES_DIR))
+    except Exception as e:
+        _warn(f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes.")
 
     tasks = [
         ("calidad", a.rev, plot_calidad_pases),
