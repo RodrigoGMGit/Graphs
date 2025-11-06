@@ -49,6 +49,7 @@ def _dedupe_pairs(pairs: Iterable[Tuple[str, str]]) -> List[Tuple[str, str]]:
 # File discovery helpers
 # ---------------------------------------------------------------------------
 
+
 def _list_excels(root: str) -> List[str]:
     """List all Excel files recursively, returning relative paths."""
     try:
@@ -78,8 +79,7 @@ def _find_by_tokens(tokens: List[str]) -> Optional[str]:
     toks = [_normalize(t) for t in tokens]
     # Match tokens against filename (not full path)
     matches = [
-        f for f in files
-        if any(t in _normalize(os.path.basename(f)) for t in toks)
+        f for f in files if any(t in _normalize(os.path.basename(f)) for t in toks)
     ]
     if not matches:
         return None
@@ -113,10 +113,12 @@ def find_source_for(task: str) -> Optional[str]:
     except Exception:
         pass
     if task == "calidad":
-        p = _find_by_tokens([
-            "Pases a Producción y Reversiones",
-            "Pases a Produccion y Reversiones",
-        ])
+        p = _find_by_tokens(
+            [
+                "Pases a Producción y Reversiones",
+                "Pases a Produccion y Reversiones",
+            ]
+        )
         if p:
             return p
         # Sort by date in filename (latest first), fallback to mod time
@@ -148,7 +150,9 @@ def find_source_for(task: str) -> Optional[str]:
     if task == "dedicacion":
         return _find_by_tokens(["DR", "dashboard"])
     if task == "madurez":
-        return _find_by_tokens(["NivelesMadurez", "Reporte_NM", "Reporte NM", "ReporteNM"])
+        return _find_by_tokens(
+            ["NivelesMadurez", "Reporte_NM", "Reporte NM", "ReporteNM"]
+        )
     if task == "tiempo":
         return _find_by_tokens(["TMD", "T.Desarrollo", "Desarrollo"])
     return None
@@ -158,7 +162,10 @@ def find_source_for(task: str) -> Optional[str]:
 # CL extraction
 # ---------------------------------------------------------------------------
 
-def _extract_cls_from_df(df: pd.DataFrame, preferred_cols: List[str]) -> List[Tuple[str, str]]:
+
+def _extract_cls_from_df(
+    df: pd.DataFrame, preferred_cols: List[str]
+) -> List[Tuple[str, str]]:
     def find_col(cands: List[str]) -> Optional[str]:
         lut = {_normalize(c): c for c in df.columns}
         for c in cands:
@@ -220,7 +227,9 @@ def load_chapter_leaders() -> List[Tuple[str, str]]:
     if mad_path:
         try:
             df = graphs.read_any(mad_path)
-            pairs += _extract_cls_from_df(df, ["Chapter Leader", "Chapter leader", "Nombre CL", "CL"])
+            pairs += _extract_cls_from_df(
+                df, ["Chapter Leader", "Chapter leader", "Nombre CL", "CL"]
+            )
         except Exception:
             pass
 

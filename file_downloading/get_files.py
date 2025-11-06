@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import time
 import unicodedata
 import urllib.parse
@@ -12,30 +13,107 @@ import requests
 from dotenv import load_dotenv
 
 # ==== ENV / CONFIG ====
-load_dotenv()  # reads .env in working dir (or parent dirs)
+
+
+def _load_env_with_logging(logger=None, silent=False):
+    """Load .env file with detailed logging about search paths.
+
+    Args:
+        logger: Optional logger instance (if None, uses print)
+        silent: If True, suppress all logging messages
+    """
+    if silent:
+
+        def log_func(msg):
+            pass  # no-op function
+    else:
+        log_func = logger.info if logger else print
+
+    if getattr(sys, "frozen", False):
+        # Running as executable - look for .env in sys._MEIPASS (bundled files)
+        # This is where PyInstaller extracts bundled data files
+        meipass = Path(getattr(sys, "_MEIPASS", Path.cwd()))
+        env_path = meipass / ".env"
+        log_func(f"Buscando .env en bundle (sys._MEIPASS): {env_path}")
+        if env_path.exists():
+            log_func(f"✓ Archivo .env encontrado en bundle: {env_path}")
+            load_dotenv(env_path, override=True)
+        else:
+            log_func(f"✗ Archivo .env no encontrado en bundle: {env_path}")
+            # Fallback to executable directory (for external .env file)
+            exec_dir = Path(sys.executable).resolve().parent
+            exec_env = exec_dir / ".env"
+            log_func(f"Buscando .env en directorio del ejecutable: {exec_env}")
+            if exec_env.exists():
+                log_func(f"✓ Archivo .env encontrado en: {exec_env}")
+                load_dotenv(exec_env, override=True)
+            else:
+                log_func(f"✗ Archivo .env no encontrado en: {exec_env}")
+                log_func("Intentando buscar .env en directorios padres...")
+                load_dotenv()
+    else:
+        # Running as script - look in project root and parent dirs
+        log_func("Buscando .env en directorio de trabajo y padres...")
+        load_dotenv()
+
+
+# Load environment variables
+_load_env_with_logging()
 
 TENANT_ID = os.getenv("AZ_TENANT_ID", "")
 CLIENT_ID = os.getenv("AZ_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("AZ_CLIENT_SECRET", "")
 
-if not (TENANT_ID and CLIENT_ID and CLIENT_SECRET):
-    raise RuntimeError(
-        "Missing AZ_TENANT_ID / AZ_CLIENT_ID / AZ_CLIENT_SECRET "
-        "in environment (.env)."
-    )
+
+def _check_credentials(logger=None) -> tuple[str, str, str]:
+    """Check and return credentials, raising descriptive error if missing."""
+    log_func = logger.warning if logger else print
+
+    if not (TENANT_ID and CLIENT_ID and CLIENT_SECRET):
+        if getattr(sys, "frozen", False):
+            meipass = Path(getattr(sys, "_MEIPASS", Path.cwd()))
+            bundle_env = meipass / ".env"
+            exec_dir = Path(sys.executable).resolve().parent
+            exec_env = exec_dir / ".env"
+            error_msg = (
+                "Missing AZ_TENANT_ID / AZ_CLIENT_ID / "
+                "AZ_CLIENT_SECRET in environment (.env).\n"
+                "El archivo .env debe estar incluido en el build "
+                "del ejecutable o en:\n"
+                f"  - Bundle: {bundle_env}\n"
+                f"  - Directorio del ejecutable: {exec_env}\n"
+                "con las siguientes variables:\n"
+                "  AZ_TENANT_ID=tu_tenant_id\n"
+                "  AZ_CLIENT_ID=tu_client_id\n"
+                "  AZ_CLIENT_SECRET=tu_client_secret"
+            )
+        else:
+            error_msg = (
+                "Missing AZ_TENANT_ID / AZ_CLIENT_ID / "
+                "AZ_CLIENT_SECRET in environment (.env).\n"
+                "Por favor, crea un archivo .env en la raíz del "
+                "proyecto con las credenciales."
+            )
+        log_func(error_msg)
+        raise RuntimeError(error_msg)
+    return TENANT_ID, CLIENT_ID, CLIENT_SECRET
+
+
 DOWNLOAD_ROOT = Path(os.getenv("DOWNLOAD_DIR", "downloads")).resolve()
 DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Pattern keys
 DMY_DOTS = "DMY_DOTS"  # 09.06.2025  or 09-06-2025
 YMD_COMPACT = "YMD_COMPACT"  # 20250616
-DMY_UNDERSCORE_2Y = "DMY_UNDERSCORE_2Y"  # 31_05_25  -> 2025-05-31 (assume 20YY)
+# 31_05_25  -> 2025-05-31 (assume 20YY)
+DMY_UNDERSCORE_2Y = "DMY_UNDERSCORE_2Y"
 
 # Compile regexes once
 RX_DMY_DOTS = re.compile(r"(?<!\d)(\d{2})[.\-](\d{2})[.\-](\d{4})(?!\d)")
 RX_YMD_COMPACT = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
 RX_DMY_UNDERSCORE_2Y = re.compile(r"(?<!\d)(\d{2})_(\d{2})_(\d{2})(?!\d)")
-RX_DMY_COMPACT_2Y = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)")  # DDMMYY format (no separators)
+# DDMMYY format (no separators)
+RX_DMY_COMPACT_2Y = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)")
 
 # Unicode dashes → ASCII hyphen
 DASH_MAP = str.maketrans({"\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2212": "-"})
@@ -53,25 +131,53 @@ class FolderRule:
 FOLDERS: List[FolderRule] = [
     # Cantidad y Calidad de Pases (OneDrive) — "Pases a Producción y Reversiones – DD.MM.YYYY.xlsx"
     FolderRule(
-        url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FDB%20Validacion%20Dashboard%2FOKRs%2FCantidad%20y%20Calidad%20Pases&ga=1",
+        url=(
+            "https://credicorponline-my.sharepoint.com/personal/"
+            "rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?"
+            "id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2F"
+            "COE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2F"
+            "DB%20Validacion%20Dashboard%2FOKRs%2F"
+            "Cantidad%20y%20Calidad%20Pases&ga=1"
+        ),
         prefix="Pases a Producción y Reversiones",
         pattern=DMY_DOTS,
     ),
     # TMD (OneDrive) — "BD Dashboard OKR T.Desarrollo - DD.MM.YYYY.xlsx"
     FolderRule(
-        url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FDB%20Validacion%20Dashboard%2FOKRs%2FTMD%20%28Desarrollo%29&ga=1",
+        url=(
+            "https://credicorponline-my.sharepoint.com/personal/"
+            "rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?"
+            "id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2F"
+            "COE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2F"
+            "DB%20Validacion%20Dashboard%2FOKRs%2F"
+            "TMD%20%28Desarrollo%29&ga=1"
+        ),
         prefix="BD Dashboard OKR T.Desarrollo",
         pattern=DMY_DOTS,
     ),
     # SharePoint site — only "Reporte_NM_DD_MM_YY.xlsx"
     FolderRule(
-        url="https://credicorponline.sharepoint.com/sites/Equipodata/Documentos%20compartidos/Forms/AllItems.aspx?id=%2Fsites%2FEquipodata%2FDocumentos%20compartidos%2FGeneral%2FNivel%20de%20Madurez%2FReportes%20Resumen&sortField=Modified&isAscending=false&viewid=6dc15532%2D2728%2D4c0b%2Dbff6%2D88c32f50d811&p=true&ga=1",
+        url=(
+            "https://credicorponline.sharepoint.com/sites/Equipodata/"
+            "Documentos%20compartidos/Forms/AllItems.aspx?"
+            "id=%2Fsites%2FEquipodata%2FDocumentos%20compartidos%2F"
+            "General%2FNivel%20de%20Madurez%2FReportes%20Resumen&"
+            "sortField=Modified&isAscending=false&"
+            "viewid=6dc15532%2D2728%2D4c0b%2Dbff6%2D88c32f50d811&"
+            "p=true&ga=1"
+        ),
         prefix="Reporte_NM_",
         pattern=DMY_UNDERSCORE_2Y,
     ),
     # IA COPILOT (OneDrive) — "dashboard-YYYYMMDD.xlsx"
     FolderRule(
-        url="https://credicorponline-my.sharepoint.com/personal/rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2FCOE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2FIA%20COPILOT&sortField=Modified&isAscending=false&ga=1",
+        url=(
+            "https://credicorponline-my.sharepoint.com/personal/"
+            "rmejiac_bcp_com_pe/_layouts/15/onedrive.aspx?"
+            "id=%2Fpersonal%2Frmejiac%5Fbcp%5Fcom%5Fpe%2FDocuments%2F"
+            "COE%20INGENIER%C3%8DA%20Y%20COE%20QUALITY%20ENGINEER%2F"
+            "IA%20COPILOT&sortField=Modified&isAscending=false&ga=1"
+        ),
         prefix="dashboard-",
         pattern=YMD_COMPACT,
     ),
@@ -90,7 +196,8 @@ TYPE_TO_PREFIX = {
 def sanitize_filename(name: str) -> str:
     """Remove characters illegal on Windows/macOS and strip trailing spaces."""
     # Windows forbidden: < > : " / \ | ? * and control chars
-    name = "".join(ch for ch in name if 31 < ord(ch) != 127 and ch not in '<>:"/\\|?*')
+    forbidden = '<>:"/\\|?*'
+    name = "".join(ch for ch in name if 31 < ord(ch) != 127 and ch not in forbidden)
     return name.rstrip(" .")
 
 
@@ -106,7 +213,8 @@ def ensure_unique_path(dirpath: Path, filename: str) -> Path:
 
 
 def norm_name(name: str) -> str:
-    """Normalize Unicode & drop trailing '(n)' before the extension; unify dashes."""
+    """Normalize Unicode & drop trailing '(n)' before the extension;
+    unify dashes."""
     base, ext = os.path.splitext(name)
     base = re.sub(r"\(\d+\)$", "", base).translate(DASH_MAP)
     return unicodedata.normalize("NFKC", base) + ext
@@ -198,7 +306,8 @@ class GraphClient:
     def split_url(url: str) -> Tuple[str, str, str, str, str]:
         """
         Returns (host, site_path, library, folder_rel, root_kind)
-        Accepts OneDrive 'onedrive.aspx?id=...' and SharePoint 'AllItems.aspx?id=...' links.
+        Accepts OneDrive 'onedrive.aspx?id=...' and SharePoint
+        'AllItems.aspx?id=...' links.
         """
         u = urllib.parse.urlparse(url)
         host = u.netloc
@@ -244,7 +353,10 @@ class GraphClient:
     def list_children(self, drive_id: str, folder_rel: str) -> List[dict]:
         if folder_rel:
             enc = urllib.parse.quote(folder_rel.strip("/"))
-            url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{enc}:/children"
+            url = (
+                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/"
+                f"root:/{enc}:/children"
+            )
         else:
             url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
         return list(self._paged(url))
@@ -255,7 +367,10 @@ class GraphClient:
         Streams content; returns the saved path.
         """
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+        url = (
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/"
+            f"items/{item_id}/content"
+        )
         with self.session.get(url, headers=self.h, stream=True, timeout=300) as r:
             r.raise_for_status()
             with open(dest_path, "wb") as f:
@@ -267,7 +382,8 @@ class GraphClient:
 
 # ==== Selection logic ====
 def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
-    """Filter by extension & prefix, parse date per rule, tie-break on lastModifiedDateTime."""
+    """Filter by extension & prefix, parse date per rule, tie-break on
+    lastModifiedDateTime."""
     cand = []
     exts = set(x.lower() for x in rule.exts)
 
@@ -292,17 +408,21 @@ def choose_latest(items: List[dict], rule: FolderRule) -> Optional[dict]:
     if not cand:
         return None
 
-    cand.sort(key=lambda t: (t[0], t[1]), reverse=True)  # by parsed date, then modified
+    # by parsed date, then modified
+    cand.sort(key=lambda t: (t[0], t[1]), reverse=True)
     return cand[0][2]
 
 
-def find_latest_month_folder(gc: GraphClient, drive_id: str, parent_folder_rel: str) -> Optional[str]:
+def find_latest_month_folder(
+    gc: GraphClient, drive_id: str, parent_folder_rel: str
+) -> Optional[str]:
     """
     Find the latest month folder (YYYYMM format) in the parent directory.
-    Returns the folder name (e.g., "202510") or None if no matching folders found.
+    Returns the folder name (e.g., "202510") or None if no matching
+    folders found.
     """
     items = gc.list_children(drive_id, parent_folder_rel)
-    
+
     # Filter for folders matching YYYYMM pattern (6 digits)
     month_folders = []
     for it in items:
@@ -312,20 +432,17 @@ def find_latest_month_folder(gc: GraphClient, drive_id: str, parent_folder_rel: 
         # Check if name matches YYYYMM pattern (exactly 6 digits)
         if re.match(r"^\d{6}$", name):
             month_folders.append(name)
-    
+
     if not month_folders:
         return None
-    
+
     # Sort by name descending (YYYYMM format naturally sorts correctly)
     month_folders.sort(reverse=True)
     return month_folders[0]
 
 
 def run_downloads(
-    gc: GraphClient,
-    rules: List[FolderRule],
-    quiet: bool = False,
-    log_func=None
+    gc: GraphClient, rules: List[FolderRule], quiet: bool = False, log_func=None
 ) -> list[Path]:
     saved_paths: list[Path] = []
 
@@ -338,11 +455,13 @@ def run_downloads(
             host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
             site_id = gc.site_id(host, site_path)
             drive_id = gc.drive_id(site_id, root_kind, library)
-            
+
             # Special handling for Reportes Resumen: find latest month folder
             if "Reportes Resumen" in folder_rel:
                 if not quiet:
-                    print("  Detected Reportes Resumen folder, finding latest month subfolder...")
+                    print(
+                        "  Detected Reportes Resumen folder, finding latest month subfolder..."
+                    )
                 latest_month = find_latest_month_folder(gc, drive_id, folder_rel)
                 if latest_month:
                     folder_rel = f"{folder_rel}/{latest_month}"
@@ -350,8 +469,10 @@ def run_downloads(
                         print(f"  Using month folder: {latest_month}")
                 else:
                     if not quiet:
-                        print("  Warning: No month folders found in Reportes Resumen, proceeding with parent folder")
-            
+                        print(
+                            "  Warning: No month folders found in Reportes Resumen, proceeding with parent folder"
+                        )
+
             items = gc.list_children(drive_id, folder_rel)
 
             if not items:
@@ -396,14 +517,14 @@ def run_downloads(
 
 def discover_latest_file_date(file_type: str, logger=None) -> Optional[datetime]:
     """Discover the date of the latest file on the server for a given type without downloading.
-    
+
     This function reuses the logic from run_downloads and choose_latest to find
     the most recent file on the server, but only returns its date without downloading.
-    
+
     Args:
         file_type: Standardized type name (Calidad, DR, NivelesMadurez, TMD)
         logger: Optional logger instance (if None, uses print)
-        
+
     Returns:
         datetime object with the date of the latest file, or None if:
         - File type not found
@@ -411,64 +532,74 @@ def discover_latest_file_date(file_type: str, logger=None) -> Optional[datetime]
         - Connection/API error occurred
     """
     if logger is None:
+
         def log_func(msg):
             pass  # Silent in discovery mode
     else:
+
         def log_func(msg):
             logger.debug(msg)
-    
+
     # Get prefix for requested type
     if file_type not in TYPE_TO_PREFIX:
         if logger:
             logger.warning(f"Tipo de archivo desconocido '{file_type}' para discovery")
         return None
-    
+
     prefix = TYPE_TO_PREFIX[file_type]
-    
+
     # Find the rule for this prefix
     rule = None
     for r in FOLDERS:
         if r.prefix == prefix:
             rule = r
             break
-    
+
     if not rule:
         if logger:
             logger.warning(f"No se encontró regla de descarga para {file_type}")
         return None
-    
+
     try:
+        # Check credentials before initializing client
+        try:
+            tenant_id, client_id, client_secret = _check_credentials(logger)
+        except RuntimeError as e:
+            if logger:
+                logger.debug(f"Credenciales no disponibles para {file_type}: {e}")
+            return None
+
         # Initialize Graph client
-        gc = GraphClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-        
+        gc = GraphClient(tenant_id, client_id, client_secret)
+
         # Get folder info
         host, site_path, library, folder_rel, root_kind = gc.split_url(rule.url)
         site_id = gc.site_id(host, site_path)
         drive_id = gc.drive_id(site_id, root_kind, library)
-        
+
         # Special handling for Reportes Resumen: find latest month folder
         if "Reportes Resumen" in folder_rel:
             latest_month = find_latest_month_folder(gc, drive_id, folder_rel)
             if latest_month:
                 folder_rel = f"{folder_rel}/{latest_month}"
-        
+
         # List files
         items = gc.list_children(drive_id, folder_rel)
-        
+
         if not items:
             return None
-        
+
         # Find latest file using existing logic
         chosen = choose_latest(items, rule)
         if not chosen:
             return None
-        
+
         # Extract date from filename
         filename = chosen["name"]
         date_obj = parse_date_from_name(filename, rule.pattern)
-        
+
         return date_obj
-        
+
     except Exception as e:
         if logger:
             logger.debug(f"Error durante discovery para {file_type}: {e}")
@@ -477,65 +608,71 @@ def discover_latest_file_date(file_type: str, logger=None) -> Optional[datetime]
 
 def download_specific_types(types_to_download: list[str], logger=None) -> list[Path]:
     """Download files for specific types only.
-    
+
     Args:
         types_to_download: List of standardized type names (Calidad, DR, NivelesMadurez, TMD)
         logger: Optional logger instance (if None, uses print)
-        
+
     Returns:
         List of paths to downloaded files
     """
     if logger is None:
+
         def log_func(msg):
             print(msg)
     else:
+
         def log_func(msg):
             logger.info(msg)
-    
+
     if not types_to_download:
         return []
-    
+
     # Get prefixes for requested types
     prefixes_to_download = set()
     for file_type in types_to_download:
         if file_type in TYPE_TO_PREFIX:
             prefixes_to_download.add(TYPE_TO_PREFIX[file_type])
         else:
-            log_func(f"Advertencia: Tipo de archivo desconocido '{file_type}', omitiendo")
-    
+            log_func(
+                f"Advertencia: Tipo de archivo desconocido '{file_type}', omitiendo"
+            )
+
     if not prefixes_to_download:
         log_func("No hay tipos válidos para descargar")
         return []
-    
+
     # Filter FOLDERS to only include rules for requested types
-    filtered_rules = [
-        rule for rule in FOLDERS
-        if rule.prefix in prefixes_to_download
-    ]
-    
+    filtered_rules = [rule for rule in FOLDERS if rule.prefix in prefixes_to_download]
+
     if not filtered_rules:
         log_func("No se encontraron reglas de descarga para los tipos solicitados")
         return []
-    
-    # Show message for each type being downloaded
-    for file_type in types_to_download:
-        if file_type in TYPE_TO_PREFIX:
-            log_func(f"Buscando archivos más recientes para {file_type}")
-    
+
     saved_paths: list[Path] = []
-    
+
     try:
+        # Check credentials before initializing client
+        try:
+            tenant_id, client_id, client_secret = _check_credentials(logger)
+        except RuntimeError as e:
+            error_msg = f"No se pueden descargar archivos: {e}"
+            log_func(error_msg)
+            if logger:
+                logger.error(error_msg, exc_info=True)
+            return []
+
         # Initialize Graph client (silently)
-        gc = GraphClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-        
+        gc = GraphClient(tenant_id, client_id, client_secret)
+
         # Run downloads with filtered rules (quiet mode for less verbose output)
         saved_paths = run_downloads(gc, filtered_rules, quiet=True, log_func=log_func)
-        
+
         if saved_paths:
             log_func(f"Descarga completada: {len(saved_paths)} archivo(s)")
         else:
             log_func("No se encontraron archivos nuevos para descargar.")
-            
+
     except requests.HTTPError as e:
         error_msg = f"Error HTTP al descargar archivos: {e.response.status_code} {e.response.text}"
         log_func(error_msg)
@@ -551,7 +688,7 @@ def download_specific_types(types_to_download: list[str], logger=None) -> list[P
         log_func(error_msg)
         if logger:
             logger.error(error_msg, exc_info=True)
-    
+
     return saved_paths
 
 
@@ -565,11 +702,12 @@ def main():
         print("\n=== Done. Files saved ===")
         for p in saved:
             print(f" - {p}")
-        
+
         # Process downloaded files: rename, date, and move to chapter_sync/files
         print("\n=== Processing downloaded files ===")
         try:
             from chapter_sync.file_processor import process_downloaded_files
+
             processed = process_downloaded_files(saved)
             if processed:
                 print(f"Successfully processed {len(processed)} file(s):")

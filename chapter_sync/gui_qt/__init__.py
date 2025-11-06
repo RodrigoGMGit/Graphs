@@ -10,4 +10,3 @@ from __future__ import annotations
 from chapter_sync.gui_qt.main import main, run
 
 __all__ = ["main", "run"]
-

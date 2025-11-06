@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Qt
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
+from PySide6.QtWidgets import QMessageBox, QProgressDialog
 
 from chapter_sync import graphs, presentation
 
@@ -21,10 +21,14 @@ from chapter_sync.gui_qt.widgets import MainWindow, ProfilePanel, WorkflowPanel
 
 # ╔══════════════════ CONSTANTES COMPARTIDAS ════════════════════════════════╗
 APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-EXEC_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+EXEC_DIR = (
+    Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
+)
 CONFIG_PATH = EXEC_DIR / "chapter_config.json"
 FILES_DIR_DEMO = EXEC_DIR / "files"
-OUTPUTS_DIR = EXEC_DIR / "outputs" if getattr(sys, "frozen", False) else APP_DIR / "outputs"
+OUTPUTS_DIR = (
+    EXEC_DIR / "outputs" if getattr(sys, "frozen", False) else APP_DIR / "outputs"
+)
 
 EMAIL_RE = re.compile(r"^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$")
 
@@ -179,7 +183,6 @@ class ChapterSyncController(QObject):
 
         self._bind_signals()
         self._refresh_profiles()
-        self._sync_demo_state(self.workflow_panel.demo_checkbox.isChecked())
 
     # ── Signal wiring ------------------------------------------------------
     def _bind_signals(self) -> None:
@@ -189,8 +192,6 @@ class ChapterSyncController(QObject):
         self.profile_panel.delete_requested.connect(self._on_delete_profile)
         self.profile_panel.cancel_requested.connect(self._on_cancel_edit)
 
-        self.workflow_panel.demo_checkbox.toggled.connect(self._sync_demo_state)
-        self.workflow_panel.browse_button.clicked.connect(self._on_browse_folder)
         self.workflow_panel.generate_button.clicked.connect(self._on_generate)
         self.workflow_panel.open_folder_button.clicked.connect(self._on_open_folder)
         self.workflow_panel.open_ppt_button.clicked.connect(self._on_open_ppt)
@@ -204,7 +205,9 @@ class ChapterSyncController(QObject):
             combo.addItem(profile.name, profile.email)
 
         if self.profiles:
-            active_profile = self._profile_by_email(self.active_email) or self.profiles[0]
+            active_profile = (
+                self._profile_by_email(self.active_email) or self.profiles[0]
+            )
             self.active_email = active_profile.email
             index = combo.findText(active_profile.name)
             combo.setCurrentIndex(index if index >= 0 else 0)
@@ -232,7 +235,9 @@ class ChapterSyncController(QObject):
 
     def _on_edit_profile(self) -> None:
         if not self.active_email:
-            QMessageBox.information(self.window, "ChapterSync", "No hay perfil seleccionado.")
+            QMessageBox.information(
+                self.window, "ChapterSync", "No hay perfil seleccionado."
+            )
             return
         profile = self._profile_by_email(self.active_email)
         if profile is None:
@@ -281,20 +286,6 @@ class ChapterSyncController(QObject):
         self.edit_mode = None if not visible else self.edit_mode
 
     # ── Workflow interactions -----------------------------------------------
-    def _sync_demo_state(self, checked: bool) -> None:
-        self.workflow_panel.path_edit.setEnabled(not checked)
-        if checked:
-            self.workflow_panel.path_edit.clear()
-
-    def _on_browse_folder(self) -> None:
-        directory = QFileDialog.getExistingDirectory(
-            self.window,
-            "Selecciona la carpeta de datos",
-            str(EXEC_DIR),
-        )
-        if directory:
-            self.workflow_panel.path_edit.setText(directory)
-
     def _current_name_email(self) -> tuple[str, str]:
         if self.profile_panel.name_edit.isVisible():
             name = self.profile_panel.name_edit.text().strip()
@@ -306,12 +297,7 @@ class ChapterSyncController(QObject):
         return "", ""
 
     def _resolve_data_dir(self) -> Optional[str]:
-        if self.workflow_panel.demo_checkbox.isChecked():
-            return str(FILES_DIR_DEMO)
-        path = self.workflow_panel.path_edit.text().strip()
-        if not path:
-            return None
-        return path
+        return str(FILES_DIR_DEMO)
 
     def _on_generate(self) -> None:
         name, email = self._current_name_email()
@@ -326,8 +312,13 @@ class ChapterSyncController(QObject):
         if not data_dir:
             self._set_status("Carpeta de datos no seleccionada", error=True)
             return
-        if not Path(data_dir).exists():
-            self._set_status(f"Ruta no encontrada: {data_dir}", error=True)
+
+        # Create directory if it doesn't exist instead of showing error
+        data_dir_path = Path(data_dir)
+        try:
+            data_dir_path.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            self._set_status(f"No se pudo crear la carpeta {data_dir}: {e}", error=True)
             return
 
         self._set_status("Generando presentación...")
@@ -344,7 +335,9 @@ class ChapterSyncController(QObject):
     def _handle_log(self, message: str, level: str) -> None:
         self.workflow_panel.append_log(message, level)
 
-    def _generation_finished(self, ok: bool, message: str, output_dir: object, ppt_path: object) -> None:
+    def _generation_finished(
+        self, ok: bool, message: str, output_dir: object, ppt_path: object
+    ) -> None:
         self.workflow_panel.generate_button.setEnabled(True)
         self._hide_progress_dialog()
 
@@ -442,4 +435,3 @@ def abrir_explorador(path: Path) -> None:
         os.system(f"open '{path}'")
     else:
         os.system(f"xdg-open '{path}'")
-

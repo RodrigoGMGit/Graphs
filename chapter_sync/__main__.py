@@ -54,12 +54,14 @@ def main(argv=None):
                     "PySide6 no está instalado. Ejecuta 'pip install -e .[qt]' "
                     "o 'pip install PySide6' antes de lanzar la interfaz Qt."
                 )
-            
+
             try:
                 from chapter_sync.gui_qt import main as qt_main
+
                 qt_main()
             except Exception as exc:  # pragma: no cover - runtime dependency
                 import traceback
+
                 raise SystemExit(
                     f"Error al cargar la interfaz Qt: {exc}\n"
                     f"Traceback:\n{traceback.format_exc()}"

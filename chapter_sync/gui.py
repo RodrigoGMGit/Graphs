@@ -353,12 +353,8 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
             gui_handler.setFormatter(logging.Formatter("%(message)s"))
 
             # Configure loggers for file_processor and file_downloading
-            file_processor_logger = logging.getLogger(
-                "chapter_sync.file_processor"
-            )
-            file_downloading_logger = logging.getLogger(
-                "file_downloading.get_files"
-            )
+            file_processor_logger = logging.getLogger("chapter_sync.file_processor")
+            file_downloading_logger = logging.getLogger("file_downloading.get_files")
 
             for logger in [file_processor_logger, file_downloading_logger]:
                 logger.setLevel(logging.INFO)
@@ -370,7 +366,7 @@ def _gen_ppt(cl: str, email: str, data_dir: str):
             log_message(
                 f"Error al verificar/descargar archivos: {e}. "
                 "Continuando con archivos existentes.",
-                "warn"
+                "warn",
             )
 
         presentation.main()

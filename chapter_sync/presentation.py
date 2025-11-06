@@ -66,9 +66,12 @@ def main() -> None:
     # Check and download files if needed
     try:
         from chapter_sync.file_processor import check_and_download_if_needed
+
         check_and_download_if_needed(Path(graphs.FILES_DIR))
     except Exception as e:
-        print(f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes.")
+        print(
+            f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes."
+        )
 
     imgs_mad = _imgs("madurez", graphs.plot_niveles_madurez)
     imgs_ded = _imgs("dedicacion", graphs.plot_dedicacion_tm)
@@ -87,7 +90,7 @@ def main() -> None:
     GAP_V_TMD = Inches(0.40)  # noqa: F841
 
     def add_center(slide: Slide, buf: io.BytesIO, width: Emu) -> None:
-        pic = slide.shapes.add_picture(buf, 0, 0, width) # type: ignore
+        pic = slide.shapes.add_picture(buf, 0, 0, width)  # type: ignore
         pic.left = cast(Emu, (SW - pic.width) // 2)
         pic.top = cast(Emu, max(TOP_MIN, (SH - pic.height) // 2))
 
@@ -149,7 +152,7 @@ def main() -> None:
             if idx < len(imgs_cal):
                 new = prs.slides.add_slide(base.slide_layout)
                 for shp in base.shapes:
-                    if shp.is_placeholder and shp.text_frame: # type: ignore
+                    if shp.is_placeholder and shp.text_frame:  # type: ignore
                         new.shapes._spTree.insert_element_before(
                             deepcopy(shp.element), "p:extLst"
                         )

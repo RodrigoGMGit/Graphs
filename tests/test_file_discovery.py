@@ -154,12 +154,8 @@ def test_multiple_matches_latest_selected(temp_files_dir):
         graphs.FILES_DIR = temp_files_dir
 
         # Create files with dates in names
-        old_file = os.path.join(
-            temp_files_dir, "Calidad", "Calidad-2025-01-15.xlsx"
-        )
-        new_file = os.path.join(
-            temp_files_dir, "Calidad", "Calidad-2025-10-27.xlsx"
-        )
+        old_file = os.path.join(temp_files_dir, "Calidad", "Calidad-2025-01-15.xlsx")
+        new_file = os.path.join(temp_files_dir, "Calidad", "Calidad-2025-10-27.xlsx")
         Path(old_file).touch()
         Path(new_file).touch()
 
@@ -183,6 +179,7 @@ def test_multiple_matches_no_date_fallback(temp_files_dir):
         Path(file1).touch()
         # Wait a bit and create second file (newer modification time)
         import time
+
         time.sleep(0.1)
         Path(file2).touch()
 
@@ -216,4 +213,3 @@ def test_file_discovery_integration(temp_files_dir):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

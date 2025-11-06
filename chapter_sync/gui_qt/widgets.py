@@ -8,7 +8,6 @@ from html import escape
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFrame,
     QGroupBox,
@@ -42,20 +41,22 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(18)
 
         # Header
-        header_layout = QHBoxLayout()
+        header_layout = QVBoxLayout()
+        header_layout.setAlignment(Qt.AlignCenter)
+        
         title = QLabel("ChapterSync")
         title_font = QFont()
         title_font.setPointSize(24)
         title_font.setBold(True)
         title.setFont(title_font)
+        title.setAlignment(Qt.AlignCenter)
 
         subtitle = QLabel("Generación de Presentaciones")
         subtitle.setObjectName("subtitle")
+        subtitle.setAlignment(Qt.AlignCenter)
 
         header_layout.addWidget(title)
-        header_layout.addSpacing(12)
         header_layout.addWidget(subtitle)
-        header_layout.addStretch(1)
         root_layout.addLayout(header_layout)
 
         # Splitter content
@@ -156,10 +157,8 @@ class ProfilePanel(QFrame):
 
 
 class WorkflowPanel(QFrame):
-    """Right-hand panel with data configuration and action controls."""
+    """Right-hand panel with action controls."""
 
-    browse_requested = Signal()
-    demo_toggled = Signal(bool)
     generate_requested = Signal()
     open_folder_requested = Signal()
     open_ppt_requested = Signal()
@@ -175,33 +174,8 @@ class WorkflowPanel(QFrame):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(18)
 
-        layout.addWidget(self._build_data_group())
         layout.addWidget(self._build_actions_group())
         layout.addWidget(self._build_log_group(), stretch=1)
-
-    def _build_data_group(self) -> QGroupBox:
-        group = QGroupBox("Configuración de datos")
-        group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(12)
-
-        self.demo_checkbox = QCheckBox("Usar carpeta de demo (./files)")
-        self.demo_checkbox.setChecked(True)
-        self.demo_checkbox.toggled.connect(self.demo_toggled)
-
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText(r"C:\ruta\a\tus\datos")
-        self.path_edit.setClearButtonEnabled(True)
-        self.path_edit.setEnabled(False)
-
-        browse_row = QHBoxLayout()
-        browse_row.addWidget(self.path_edit, stretch=1)
-        self.browse_button = QPushButton("Examinar...")
-        self.browse_button.clicked.connect(self.browse_requested)
-        browse_row.addWidget(self.browse_button)
-
-        group_layout.addWidget(self.demo_checkbox)
-        group_layout.addLayout(browse_row)
-        return group
 
     def _build_actions_group(self) -> QGroupBox:
         group = QGroupBox("Acciones")
@@ -210,14 +184,17 @@ class WorkflowPanel(QFrame):
 
         self.generate_button = QPushButton("Generar presentación")
         self.generate_button.setObjectName("generateButton")
+        self.generate_button.setMinimumHeight(50)
         self.generate_button.clicked.connect(self.generate_requested)
 
         self.open_folder_button = QPushButton("Abrir carpeta de salida")
         self.open_folder_button.setEnabled(False)
+        self.open_folder_button.setMinimumHeight(50)
         self.open_folder_button.clicked.connect(self.open_folder_requested)
 
         self.open_ppt_button = QPushButton("Abrir presentación más reciente")
         self.open_ppt_button.setEnabled(False)
+        self.open_ppt_button.setMinimumHeight(50)
         self.open_ppt_button.clicked.connect(self.open_ppt_requested)
 
         group_layout.addWidget(self.generate_button)
@@ -233,7 +210,9 @@ class WorkflowPanel(QFrame):
         self.log_view.setReadOnly(True)
         self.log_view.setObjectName("logView")
         self.log_view.setPlaceholderText("Los mensajes del proceso aparecerán aquí.")
-        self.log_view.setStyleSheet("QTextEdit { background-color: #1e1f24; color: #d0d5df; }")
+        self.log_view.setStyleSheet(
+            "QTextEdit { background-color: #1e1f24; color: #d0d5df; }"
+        )
         self._log_rows = 0
 
         group_layout.addWidget(self.log_view)
@@ -264,4 +243,3 @@ class WorkflowPanel(QFrame):
     def set_output_buttons_enabled(self, enabled: bool) -> None:
         self.open_folder_button.setEnabled(enabled)
         self.open_ppt_button.setEnabled(enabled)
-

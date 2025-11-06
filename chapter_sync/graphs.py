@@ -164,15 +164,11 @@ def _find_file_by_keyword(keyword: str) -> str | None:
             if file.lower().endswith(".xlsx"):
                 if keyword in _normalize(file):
                     # Get relative path from FILES_DIR
-                    rel_path = os.path.relpath(
-                        os.path.join(root, file), FILES_DIR
-                    )
+                    rel_path = os.path.relpath(os.path.join(root, file), FILES_DIR)
                     matches.append(rel_path)
 
     if len(matches) == 0:
-        _warn(
-            f"No se encontró archivo con «{keyword}» en {FILES_DIR}"
-        )
+        _warn(f"No se encontró archivo con «{keyword}» en {FILES_DIR}")
         return None
 
     if len(matches) == 1:
@@ -197,9 +193,7 @@ def _find_file_by_keyword(keyword: str) -> str | None:
     matches.sort(key=get_sort_key, reverse=True)
     latest = matches[0]
     latest_filename = os.path.basename(latest)
-    _warn(
-        f"Procesando el archivo: {latest_filename}"
-    )
+    _warn(f"Procesando el archivo: {latest_filename}")
     return os.path.join(FILES_DIR, latest)
 
 
@@ -524,7 +518,6 @@ def plot_dedicacion_tm(file_path: str) -> None:
     • Si falta una métrica o no hay columna de persona, se omite solo ese gráfico.
     • Compatible con pandas 2.x (sin mean(level=...)).
     """
-
 
     # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -926,9 +919,12 @@ def main(argv: list[str] | None = None) -> None:
     # Check and download files if needed
     try:
         from chapter_sync.file_processor import check_and_download_if_needed
+
         check_and_download_if_needed(Path(FILES_DIR))
     except Exception as e:
-        _warn(f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes.")
+        _warn(
+            f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes."
+        )
 
     tasks = [
         ("calidad", a.rev, plot_calidad_pases),

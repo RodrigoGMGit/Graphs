@@ -12,11 +12,17 @@ def _get_default_data_dir() -> str:
     if getattr(sys, "frozen", False):
         # Running as executable - use external files directory
         exec_dir = Path(sys.executable).resolve().parent
-        return str(exec_dir / "files")
+        files_dir = exec_dir / "files"
+        # Create directory if it doesn't exist
+        files_dir.mkdir(parents=True, exist_ok=True)
+        return str(files_dir)
     else:
         # Running as script
         workspace_root = Path(__file__).resolve().parent.parent
-        return str(workspace_root / "chapter_sync" / "files")
+        files_dir = workspace_root / "chapter_sync" / "files"
+        # Create directory if it doesn't exist
+        files_dir.mkdir(parents=True, exist_ok=True)
+        return str(files_dir)
 
 
 @dataclass

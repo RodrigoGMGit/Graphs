@@ -1,10 +1,8 @@
 """Tests for file processing module."""
 
-import os
 import tempfile
 import shutil
 from pathlib import Path
-from datetime import datetime
 import pytest
 
 from chapter_sync.file_processor import (
@@ -140,7 +138,9 @@ class TestProcessDownloadedFiles:
     ):
         """Test processing a Calidad file."""
         # Create test file in downloads
-        test_file = temp_downloads_dir / "Pases a Producción y Reversiones - 27.10.2025.xlsx"
+        test_file = (
+            temp_downloads_dir / "Pases a Producción y Reversiones - 27.10.2025.xlsx"
+        )
         test_file.touch()
 
         # Mock the directory getters
@@ -177,8 +177,8 @@ class TestProcessDownloadedFiles:
         """Test processing multiple files of different types."""
         # Create test files
         files = [
-            temp_downloads_dir / "Pases a Producción y Reversiones - 27.10.2025.xlsx",
-            temp_downloads_dir / "BD Dashboard OKR T.Desarrollo - 03.11.2025.xlsx",
+            (temp_downloads_dir / "Pases a Producción y Reversiones - 27.10.2025.xlsx"),
+            (temp_downloads_dir / "BD Dashboard OKR T.Desarrollo - 03.11.2025.xlsx"),
             temp_downloads_dir / "dashboard-20251102.xlsx",
             temp_downloads_dir / "Reporte_NM_26_10_25.xlsx",
         ]
@@ -304,4 +304,3 @@ class TestProcessDownloadedFiles:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

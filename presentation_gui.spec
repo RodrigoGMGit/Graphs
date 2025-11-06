@@ -1,11 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+from pathlib import Path
+
 block_cipher = None
 
 
 added_files = [
     ('chapter_sync/inputs/Template.pptx', 'inputs'),
 ]
+
+# Include .env file if it exists in the project root
+env_path = Path('.env')
+if env_path.exists():
+    added_files.append(('.env', '.'))
 
 hidden = [
     'matplotlib',
