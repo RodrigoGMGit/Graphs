@@ -14,7 +14,7 @@ dependencies = [
     "openpyxl",
     "pyarrow",
     "python-pptx",
-    "dearpygui",
+    "PySide6>=6.7",
     "requests",
     "python-dotenv",
 ]
@@ -28,3 +28,4 @@ packages = ["chapter_sync"]  # Correct placement for package discovery
 [project.optional-dependencies]
 build = ["pyinstaller"]
 dev = ["pytest", "pytest-xdist"]
+dpg = ["dearpygui"]

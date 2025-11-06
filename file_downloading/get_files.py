@@ -14,9 +14,15 @@ from dotenv import load_dotenv
 # ==== ENV / CONFIG ====
 load_dotenv()  # reads .env in working dir (or parent dirs)
 
-TENANT_ID = os.environ["AZ_TENANT_ID"]
-CLIENT_ID = os.environ["AZ_CLIENT_ID"]
-CLIENT_SECRET = os.environ["AZ_CLIENT_SECRET"]
+TENANT_ID = os.getenv("AZ_TENANT_ID", "")
+CLIENT_ID = os.getenv("AZ_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("AZ_CLIENT_SECRET", "")
+
+if not (TENANT_ID and CLIENT_ID and CLIENT_SECRET):
+    raise RuntimeError(
+        "Missing AZ_TENANT_ID / AZ_CLIENT_ID / AZ_CLIENT_SECRET "
+        "in environment (.env)."
+    )
 DOWNLOAD_ROOT = Path(os.getenv("DOWNLOAD_DIR", "downloads")).resolve()
 DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -117,23 +123,35 @@ def parse_date_from_name(name: str, pattern: str) -> Optional[datetime]:
         m = RX_DMY_DOTS.search(base)
         if m:
             d, mth, y = map(int, m.groups())
-            return datetime(y, mth, d, tzinfo=timezone.utc)
+            try:
+                return datetime(y, mth, d, tzinfo=timezone.utc)
+            except ValueError:
+                return None
     elif pattern == YMD_COMPACT:
         m = RX_YMD_COMPACT.search(base)
         if m:
             y, mth, d = map(int, m.groups())
-            return datetime(y, mth, d, tzinfo=timezone.utc)
+            try:
+                return datetime(y, mth, d, tzinfo=timezone.utc)
+            except ValueError:
+                return None
     elif pattern == DMY_UNDERSCORE_2Y:
         # Try underscore format first (DD_MM_YY)
         m = RX_DMY_UNDERSCORE_2Y.search(base)
         if m:
             d, mth, yy = map(int, m.groups())
-            return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
+            try:
+                return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
+            except ValueError:
+                pass  # Try fallback format below
         # Try compact format (DDMMYY) as fallback
         m = RX_DMY_COMPACT_2Y.search(base)
         if m:
             d, mth, yy = map(int, m.groups())
-            return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
+            try:
+                return datetime(2000 + yy, mth, d, tzinfo=timezone.utc)
+            except ValueError:
+                return None
     return None
 
 

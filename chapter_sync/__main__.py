@@ -20,7 +20,13 @@ def main(argv=None):
     p_graphs.add_argument("--tmd", nargs="?", const=True, default=None)
 
     sub.add_parser("ppt", help="Generate presentation")
-    sub.add_parser("gui", help="Launch GUI")
+    p_gui = sub.add_parser("gui", help="Launch GUI")
+    p_gui.add_argument(
+        "--ui",
+        choices=["qt", "dpg"],
+        default="qt",
+        help="Selecciona la interfaz gráfica (qt = PySide6 [default], dpg = DearPyGUI [legacy])",
+    )
 
     args = parser.parse_args(argv)
 
@@ -38,7 +44,26 @@ def main(argv=None):
     elif args.cmd == "ppt":
         presentation.main()
     elif args.cmd == "gui":
-        gui.main()
+        if args.ui == "dpg":
+            gui.main()
+        else:
+            try:
+                import PySide6  # Check if PySide6 is available
+            except ImportError:
+                raise SystemExit(
+                    "PySide6 no está instalado. Ejecuta 'pip install -e .[qt]' "
+                    "o 'pip install PySide6' antes de lanzar la interfaz Qt."
+                )
+            
+            try:
+                from chapter_sync.gui_qt import main as qt_main
+                qt_main()
+            except Exception as exc:  # pragma: no cover - runtime dependency
+                import traceback
+                raise SystemExit(
+                    f"Error al cargar la interfaz Qt: {exc}\n"
+                    f"Traceback:\n{traceback.format_exc()}"
+                ) from exc
 
 
 if __name__ == "__main__":

@@ -2,12 +2,26 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def _get_default_data_dir() -> str:
+    """Get the default data directory path, handling executable mode."""
+    if getattr(sys, "frozen", False):
+        # Running as executable - use external files directory
+        exec_dir = Path(sys.executable).resolve().parent
+        return str(exec_dir / "files")
+    else:
+        # Running as script
+        workspace_root = Path(__file__).resolve().parent.parent
+        return str(workspace_root / "chapter_sync" / "files")
 
 
 @dataclass
 class AppConfig:
-    data_dir: str = "./chapter_sync/files"
+    data_dir: str = field(default_factory=_get_default_data_dir)
     cache_subdir: str = "cached_files"
     # chapter_leader: str = "RENE RUBEN PLAZ CABRERA"
     # chapter_leader_email: str = "rplaz@bcp.com.pe"

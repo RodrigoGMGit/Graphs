@@ -222,9 +222,13 @@ class TestProcessDownloadedFiles:
         self, temp_downloads_dir, temp_files_dir, monkeypatch
     ):
         """Test processing files with duplicate dates."""
-        # Create two files with same date
-        file1 = temp_downloads_dir / "Calidad-2025-10-27.xlsx"
-        file2 = temp_downloads_dir / "Calidad-2025-10-27.xlsx"
+        # Create two different source files that will both standardize
+        # to the same destination. Both files have the same date
+        # (27.10.2025) and map to "Calidad"
+        base_name = "Pases a Producción y Reversiones - 27.10.2025.xlsx"
+        file1 = temp_downloads_dir / base_name
+        file2_name = "Pases a Producción y Reversiones - 27.10.2025-v2.xlsx"
+        file2 = temp_downloads_dir / file2_name
         file1.touch()
         file2.touch()
 
@@ -244,10 +248,26 @@ class TestProcessDownloadedFiles:
             mock_get_files,
         )
 
-        # This should handle duplicate names gracefully
-        # (though the second file would be named with (1) suffix)
-        # Note: This test may need adjustment based on actual behavior
-        # when files have same source name
+        # Process files
+        processed = process_downloaded_files([file1, file2])
+
+        # Verify both files were processed
+        assert len(processed) == 2
+
+        # Check destinations - first should be standard name,
+        # second should have (1) suffix
+        dest_names = {dest.name for _, dest in processed}
+        assert "Calidad-2025-10-27.xlsx" in dest_names
+        assert "Calidad-2025-10-27 (1).xlsx" in dest_names
+
+        # Verify both files are in the Calidad directory
+        for _, dest in processed:
+            assert dest.parent == temp_files_dir / "Calidad"
+            assert dest.exists()
+
+        # Verify originals are gone
+        assert not file1.exists()
+        assert not file2.exists()
 
     def test_process_file_without_date(
         self, temp_downloads_dir, temp_files_dir, monkeypatch

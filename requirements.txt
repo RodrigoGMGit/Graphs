@@ -7,3 +7,4 @@ pyarrow
 python-pptx
 dearpygui
 pyinstaller
+PySide6  # opcional: interfaz Qt

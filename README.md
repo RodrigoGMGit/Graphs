@@ -21,6 +21,11 @@ Este sistema automatiza la generación de presentaciones (PPTX) con métricas de
    ```
 3. Coloca los archivos de Excel requeridos en `files/` o indica otra carpeta al ejecutar los scripts.
 4. Opcionalmente define la variable `CHAPTERSYNC_CONFIG` apuntando a un JSON con tu configuración (rutas y datos del Chapter Leader).
+5. (Opcional) Para probar la nueva interfaz en Qt instala las dependencias extra:
+
+   ```bash
+   pip install -e .[qt]
+   ```
 
 ## Uso
 
@@ -51,15 +56,39 @@ Si prefieres una interfaz gráfica ejecuta:
 ```bash
 chaptersync gui
 ```
-Permite configurar la información del Chapter Leader y exportar la presentación con un solo clic.
+
+La interfaz gráfica utiliza PySide6 (Qt) como framework principal y permite configurar la información del Chapter Leader y exportar la presentación con un solo clic.
+
+La GUI incluye:
+- **Interfaz moderna** con diseño profesional basado en Qt
+- **Gestión de perfiles** para guardar múltiples Chapter Leaders
+- **Indicadores de carga** con diálogo de progreso durante la generación
+- **Sistema de logging** con timestamps y códigos de color
+- **Barra de estado** con feedback visual inmediato
+
+#### Interfaz alternativa (DearPyGUI)
+
+Si prefieres usar la interfaz legacy construida con DearPyGUI:
+
+```bash
+chaptersync gui --ui dpg
+```
 
 ## Estructura del repositorio
 
 ```
-files/          # Libros de Excel de ejemplo
-files/cached_files/   # Caché Parquet generada automáticamente
-inputs/         # Plantilla de la presentación
-outputs/        # Archivos PPTX resultantes (ignorados por git)
+chapter_sync/
+  ├── gui.py           # Interfaz gráfica legacy (DearPyGUI v3.7.0)
+  ├── gui_qt/          # Interfaz gráfica principal (PySide6)
+  │   ├── main.py      # Bootstrap de la aplicación Qt
+  │   ├── widgets.py   # Componentes de la interfaz
+  │   └── controller.py # Lógica de negocio
+  ├── graphs.py        # Generación de gráficas
+  ├── presentation.py  # Compilación de PPTX
+  ├── files/           # Libros de Excel de ejemplo
+  │   └── cached_files/  # Caché Parquet generada automáticamente
+  ├── inputs/          # Plantilla de la presentación
+  └── outputs/         # Archivos PPTX resultantes (ignorados por git)
 ```
 
 El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
@@ -79,10 +108,10 @@ Los tests se configuraron para ejecutarse en un entorno sin interfaz gráfica (h
 ## Generar ejecutable
 
 El repositorio incluye `presentation_gui.spec` para crear una versión ejecutable
-de la GUI usando PyInstaller. Instala primero la dependencia opcional:
+de la GUI usando PyInstaller. La interfaz por defecto es PySide6 (Qt). Instala primero las dependencias:
 
 ```bash
-pip install -e .[build]
+pip install -e .[build,qt]
 ```
 
 Luego ejecuta:

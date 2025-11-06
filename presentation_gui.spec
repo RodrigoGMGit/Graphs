@@ -4,7 +4,6 @@ block_cipher = None
 
 
 added_files = [
-    ('chapter_sync/files', 'files'),
     ('chapter_sync/inputs/Template.pptx', 'inputs'),
 ]
 
@@ -16,12 +15,15 @@ hidden = [
     'openpyxl',
     'pyarrow',
     'pptx',
-    'dearpygui.dearpygui',
+    'PySide6',
+    'PySide6.QtWidgets',
+    'PySide6.QtGui',
+    'PySide6.QtCore',
 ]
 
 
 a = Analysis(
-    ['chapter_sync/gui.py'],
+    ['chapter_sync/gui_qt/main.py'],
     pathex=['.'],
     binaries=[],
     datas=added_files,

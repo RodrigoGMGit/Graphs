@@ -142,11 +142,11 @@ def _get_downloads_dir() -> Path:
 
 
 def _get_files_dir() -> Path:
-    """Get the chapter_sync/files directory path, handling executable mode."""
+    """Get the files directory path, handling executable mode."""
     if getattr(sys, "frozen", False):
-        # Running as executable
+        # Running as executable - use external files directory
         exec_dir = Path(sys.executable).resolve().parent
-        return exec_dir / "chapter_sync" / "files"
+        return exec_dir / "files"
     else:
         # Running as script
         workspace_root = Path(__file__).resolve().parent.parent
@@ -351,129 +351,148 @@ def get_types_needing_download(files_dir: Path) -> dict[str, dict]:
 
 
 def check_and_download_if_needed(files_dir: Path) -> None:
-    """Check file dates and download if needed.
-    
-    This function:
-    1. Checks which file types need download (based on date thresholds)
-    2. For each type needing download, discovers the latest remote file date
-    3. Compares remote date with local date to avoid unnecessary downloads
-    4. Downloads only the types that actually need it (remote date is newer)
-    5. Processes downloaded files automatically
-    6. Logs all operations and errors
-    
-    Args:
-        files_dir: Directory containing subdirectories for each file type
-    """
-    # Check which types need download and get their local dates
-    types_info = get_types_needing_download(files_dir)
-    
-    # Filter to only types that need download
-    types_needing_download = [
-        file_type for file_type, info in types_info.items()
-        if info["needs_download"]
-    ]
-    
-    if not types_needing_download:
-        logger.debug("Todos los tipos de archivo están actualizados, no se necesita descarga")
-        return
-    
-    logger.info(
-        f"Tipos de archivo que necesitan descarga ({len(types_needing_download)}): "
-        f"{', '.join(types_needing_download)}"
-    )
-    
-    # Import here to avoid circular dependency
-    from file_downloading.get_files import download_specific_types, discover_latest_file_date
-    
-    # Download each type individually, after checking remote dates
-    types_to_actually_download = []
-    
-    for file_type in types_needing_download:
-        local_date = types_info[file_type]["latest_date"]
-        
-        # Discover remote file date
-        logger.info(f"Verificando fecha de archivo remoto para {file_type}")
-        remote_date = discover_latest_file_date(file_type, logger=logger)
-        
-        if remote_date is None:
-            # Discovery failed - cannot download anyway, skip
+    """Check file dates and download if needed."""
+
+    is_executable = getattr(sys, "frozen", False)
+    downloads_dir = _get_downloads_dir()
+
+    if is_executable:
+        try:
+            files_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - filesystem specific
             logger.warning(
-                f"No se pudo obtener fecha del archivo remoto para {file_type}. "
-                "Omitiendo descarga (no se puede descargar de todas formas)."
+                f"No se pudo asegurar la carpeta de archivos en {files_dir}: {exc}"
             )
-            continue
-        
-        # Compare dates (only date part, ignore time/timezone)
-        remote_date_only = remote_date.date()
-        
-        if local_date is None:
-            # No local file, proceed with download
-            logger.info(
-                f"{file_type}: No hay archivo local, procediendo con descarga "
-                f"(archivo remoto: {remote_date_only})"
+
+    try:
+        # Check which types need download and get their local dates
+        types_info = get_types_needing_download(files_dir)
+
+        # Filter to only types that need download
+        types_needing_download = [
+            file_type for file_type, info in types_info.items()
+            if info["needs_download"]
+        ]
+
+        if not types_needing_download:
+            logger.debug(
+                "Todos los tipos de archivo están actualizados, no se necesita descarga"
             )
-            types_to_actually_download.append(file_type)
-        else:
-            local_date_only = local_date.date()
-            
-            if remote_date_only == local_date_only:
-                # Same date, skip download
-                logger.info(
-                    f"{file_type}: Archivo remoto tiene misma fecha que local "
-                    f"({local_date_only}), omitiendo descarga"
+            return
+
+        logger.info(
+            f"Tipos de archivo que necesitan descarga ({len(types_needing_download)}): "
+            f"{', '.join(types_needing_download)}"
+        )
+
+        # Import here to avoid circular dependency
+        from file_downloading.get_files import (
+            download_specific_types,
+            discover_latest_file_date,
+        )
+
+        # Download each type individually, after checking remote dates
+        types_to_actually_download = []
+
+        for file_type in types_needing_download:
+            local_date = types_info[file_type]["latest_date"]
+
+            # Discover remote file date
+            logger.info(f"Verificando fecha de archivo remoto para {file_type}")
+            remote_date = discover_latest_file_date(file_type, logger=logger)
+
+            if remote_date is None:
+                # Discovery failed - cannot download anyway, skip
+                logger.warning(
+                    f"No se pudo obtener fecha del archivo remoto para {file_type}. "
+                    "Omitiendo descarga (no se puede descargar de todas formas)."
                 )
-            elif remote_date_only < local_date_only:
-                # Remote is older, skip download
+                continue
+
+            # Compare dates (only date part, ignore time/timezone)
+            remote_date_only = remote_date.date()
+
+            if local_date is None:
+                # No local file, proceed with download
                 logger.info(
-                    f"{file_type}: Archivo remoto es más antiguo que local "
-                    f"(remoto: {remote_date_only}, local: {local_date_only}), omitiendo descarga"
-                )
-            else:
-                # Remote is newer, proceed with download
-                logger.info(
-                    f"{file_type}: Archivo remoto es más reciente que local "
-                    f"(remoto: {remote_date_only}, local: {local_date_only}), procediendo con descarga"
+                    f"{file_type}: No hay archivo local, procediendo con descarga "
+                    f"(archivo remoto: {remote_date_only})"
                 )
                 types_to_actually_download.append(file_type)
-    
-    if not types_to_actually_download:
-        logger.info("No hay archivos para descargar después de comparar fechas")
-        return
-    
-    logger.info(
-        f"Archivos a descargar después de comparar fechas ({len(types_to_actually_download)}): "
-        f"{', '.join(types_to_actually_download)}"
-    )
-    
-    # Download each type
-    for file_type in types_to_actually_download:
-        try:
-            logger.info(f"Buscando archivos más recientes para {file_type}")
-            
-            # Download this specific type
-            downloaded_paths = download_specific_types([file_type], logger=logger)
-            
-            if downloaded_paths:
-                logger.info(f"Descarga completada para {file_type}: {len(downloaded_paths)} archivo(s)")
-                
-                # Process downloaded files (rename, move to files_dir)
-                processed = process_downloaded_files(downloaded_paths)
-                if processed:
+            else:
+                local_date_only = local_date.date()
+
+                if remote_date_only == local_date_only:
+                    # Same date, skip download
                     logger.info(
-                        f"Archivos procesados para {file_type}: "
-                        f"{len(processed)} archivo(s) movidos a {files_dir}"
+                        f"{file_type}: Archivo remoto tiene misma fecha que local "
+                        f"({local_date_only}), omitiendo descarga"
+                    )
+                elif remote_date_only < local_date_only:
+                    # Remote is older, skip download
+                    logger.info(
+                        f"{file_type}: Archivo remoto es más antiguo que local "
+                        f"(remoto: {remote_date_only}, local: {local_date_only}), omitiendo descarga"
                     )
                 else:
-                    logger.warning(f"No se pudieron procesar archivos descargados para {file_type}")
-            else:
+                    # Remote is newer, proceed with download
+                    logger.info(
+                        f"{file_type}: Archivo remoto es más reciente que local "
+                        f"(remoto: {remote_date_only}, local: {local_date_only}), procediendo con descarga"
+                    )
+                    types_to_actually_download.append(file_type)
+
+        if not types_to_actually_download:
+            logger.info("No hay archivos para descargar después de comparar fechas")
+            return
+
+        logger.info(
+            f"Archivos a descargar después de comparar fechas ({len(types_to_actually_download)}): "
+            f"{', '.join(types_to_actually_download)}"
+        )
+
+        # Download each type
+        for file_type in types_to_actually_download:
+            try:
+                logger.info(f"Buscando archivos más recientes para {file_type}")
+
+                # Download this specific type
+                downloaded_paths = download_specific_types([file_type], logger=logger)
+
+                if downloaded_paths:
+                    logger.info(
+                        f"Descarga completada para {file_type}: {len(downloaded_paths)} archivo(s)"
+                    )
+
+                    # Process downloaded files (rename, move to files_dir)
+                    processed = process_downloaded_files(downloaded_paths)
+                    if processed:
+                        logger.info(
+                            f"Archivos procesados para {file_type}: "
+                            f"{len(processed)} archivo(s) movidos a {files_dir}"
+                        )
+                    else:
+                        logger.warning(
+                            f"No se pudieron procesar archivos descargados para {file_type}"
+                        )
+                else:
+                    logger.warning(
+                        f"No se descargaron archivos para {file_type}. "
+                        "Continuando con archivos existentes."
+                    )
+
+            except Exception as e:  # noqa: BLE001
+                error_msg = f"Error al descargar {file_type}: {type(e).__name__}: {e}"
+                logger.error(error_msg, exc_info=True)
+                logger.info(f"Continuando con archivos existentes para {file_type}")
+                # Continue with next type, don't block execution
+    finally:
+        if is_executable and downloads_dir.exists():
+            try:
+                shutil.rmtree(downloads_dir)
+                logger.info(f"Directorio de descargas eliminado: {downloads_dir}")
+            except Exception as exc:  # pragma: no cover - filesystem specific
                 logger.warning(
-                    f"No se descargaron archivos para {file_type}. "
-                    "Continuando con archivos existentes."
+                    f"Error al intentar eliminar el directorio de descargas: {exc}"
                 )
-                
-        except Exception as e:
-            error_msg = f"Error al descargar {file_type}: {type(e).__name__}: {e}"
-            logger.error(error_msg, exc_info=True)
-            logger.info(f"Continuando con archivos existentes para {file_type}")
-            # Continue with next type, don't block execution
 
