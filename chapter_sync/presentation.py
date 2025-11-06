@@ -13,14 +13,17 @@ import os
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import List, cast
+from typing import List, Optional, Tuple, cast
 
 import matplotlib.pyplot as plt
 from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 from pptx.slide import Slide
 from pptx.util import Emu, Inches
 
 from chapter_sync import graphs
+from chapter_sync.file_processor import extract_date_from_standardized_filename
 
 # ───── rutas
 # Cuando se ejecuta desde un ejecutable PyInstaller, los recursos se
@@ -57,9 +60,23 @@ def capture(fn) -> List[io.BytesIO]:
     return bufs
 
 
-def _imgs(k, f):
+def _imgs(k, f) -> Tuple[List[io.BytesIO], Optional[str], Optional[dt.datetime]]:
+    """Captura gráficos y devuelve buffers, ruta del archivo y fecha de corte.
+    
+    Returns:
+        Tuple de (lista de buffers, ruta del archivo, fecha de corte)
+    """
     p = graphs._resolve_path(None, k)
-    return capture(lambda: f(p)) if p else []
+    if not p:
+        return ([], None, None)
+    
+    buffers = capture(lambda: f(p))
+    
+    # Extraer fecha del nombre del archivo
+    filename = os.path.basename(p)
+    date_obj = extract_date_from_standardized_filename(filename)
+    
+    return (buffers, p, date_obj)
 
 
 def main() -> None:
@@ -73,10 +90,10 @@ def main() -> None:
             f"Error al verificar/descargar archivos: {e}. Continuando con archivos existentes."
         )
 
-    imgs_mad = _imgs("madurez", graphs.plot_niveles_madurez)
-    imgs_ded = _imgs("dedicacion", graphs.plot_dedicacion_tm)
-    imgs_tmd = _imgs("tiempo", graphs.plot_tiempo_desarrollo)  # 2
-    imgs_cal = _imgs("calidad", graphs.plot_calidad_pases)  # N
+    imgs_mad, path_mad, date_mad = _imgs("madurez", graphs.plot_niveles_madurez)
+    imgs_ded, path_ded, date_ded = _imgs("dedicacion", graphs.plot_dedicacion_tm)
+    imgs_tmd, path_tmd, date_tmd = _imgs("tiempo", graphs.plot_tiempo_desarrollo)  # 2
+    imgs_cal, path_cal, date_cal = _imgs("calidad", graphs.plot_calidad_pases)  # N
 
     prs = Presentation(TEMPLATE_PATH)
     SW: Emu = cast(Emu, prs.slide_width)
@@ -89,6 +106,38 @@ def main() -> None:
     TOP_MIN = Inches(0.8)
     GAP_V_TMD = Inches(0.40)  # noqa: F841
 
+    def add_date_label(slide: Slide, date_obj: Optional[dt.datetime], file_path: Optional[str]) -> None:
+        """Añade un cuadro de texto con la fecha de corte en la esquina superior derecha del slide."""
+        if not date_obj and not file_path:
+            return
+        
+        # Formatear la fecha
+        if date_obj:
+            date_str = date_obj.strftime("%d/%m/%Y")
+            label_text = f"Fecha de corte: {date_str}"
+        else:
+            # Si no hay fecha, usar el nombre del archivo
+            filename = os.path.basename(file_path) if file_path else "N/A"
+            label_text = f"Archivo: {filename}"
+        
+        # Posición en la esquina superior derecha con márgenes
+        width = Inches(3.0)  # Ancho suficiente para el texto
+        left = cast(Emu, SW - width - Inches(0.5))  # Posicionado a la derecha
+        top = Inches(0.3)
+        height = Inches(0.3)
+        
+        textbox = slide.shapes.add_textbox(left, top, width, height)
+        text_frame = textbox.text_frame
+        text_frame.text = label_text
+        text_frame.word_wrap = False
+        
+        # Formato del texto
+        paragraph = text_frame.paragraphs[0]
+        paragraph.font.size = Inches(0.12)  # ~9pt
+        paragraph.font.name = "Calibri"
+        paragraph.font.color.rgb = RGBColor(0, 0, 0)  # Color negro
+        paragraph.alignment = PP_ALIGN.RIGHT  # Right alignment
+
     def add_center(slide: Slide, buf: io.BytesIO, width: Emu) -> None:
         pic = slide.shapes.add_picture(buf, 0, 0, width)  # type: ignore
         pic.left = cast(Emu, (SW - pic.width) // 2)
@@ -96,6 +145,7 @@ def main() -> None:
 
     if imgs_mad:
         add_center(prs.slides[2], imgs_mad[0], PIC_W_STD)
+        add_date_label(prs.slides[2], date_mad, path_mad)
 
     # ——— Dedicación + Duración subtareas (mismo layout que TMD) ————
     if len(imgs_ded) >= 2:
@@ -112,10 +162,12 @@ def main() -> None:
 
         top_2 = cast(Emu, shape1.top + shape1.height + gap_v)
         s3.shapes.add_picture(imgs_ded[1], left_c, top_2, pic_w)
+        add_date_label(s3, date_ded, path_ded)
 
     # Si por alguna razón solo llega una imagen (back-compat)
     elif imgs_ded:
         add_center(prs.slides[3], imgs_ded[0], PIC_W_STD)
+        add_date_label(prs.slides[3], date_ded, path_ded)
 
     if len(imgs_tmd) >= 2:
         s5 = prs.slides[4]
@@ -127,6 +179,7 @@ def main() -> None:
         shape1 = s5.shapes.add_picture(imgs_tmd[0], left_c, top_1, pic_w)
         top_2 = cast(Emu, shape1.top + shape1.height + gap_v)
         s5.shapes.add_picture(imgs_tmd[1], left_c, top_2, pic_w)
+        add_date_label(s5, date_tmd, path_tmd)
 
     if imgs_cal:
         base = prs.slides[5]
@@ -149,6 +202,8 @@ def main() -> None:
                     cy = cast(Emu, t + r * (ch + gap))
                     cur.shapes.add_picture(imgs_cal[idx], cx, cy, cw, ch)
                     idx += 1
+            # Añadir fecha de corte en cada slide de calidad
+            add_date_label(cur, date_cal, path_cal)
             if idx < len(imgs_cal):
                 new = prs.slides.add_slide(base.slide_layout)
                 for shp in base.shapes:
