@@ -19,12 +19,20 @@ Este sistema automatiza la generación de presentaciones (PPTX) con métricas de
    ```bash
    pip install -e .
    ```
-3. Coloca los archivos de Excel requeridos en `files/` o indica otra carpeta al ejecutar los scripts.
-4. Opcionalmente define la variable `CHAPTERSYNC_CONFIG` apuntando a un JSON con tu configuración (rutas y datos del Chapter Leader).
-5. (Opcional) Para probar la nueva interfaz en Qt instala las dependencias extra:
-
+   Esto instalará todas las dependencias necesarias, incluyendo PySide6 para la interfaz gráfica Qt.
+   
+   Nota: El proyecto usa `pyproject.toml` para gestionar dependencias. Si encuentras un archivo `requirements.txt`, es legacy y no es necesario usarlo.
+3. Coloca los archivos de Excel requeridos en `chapter_sync/files/` (ubicación por defecto) o indica otra carpeta al ejecutar los scripts mediante el parámetro `--root` o la configuración.
+4. Opcionalmente define la variable de entorno `CHAPTERSYNC_CONFIG` apuntando a un JSON con tu configuración (rutas y datos del Chapter Leader).
+5. (Opcional) Si planeas usar la funcionalidad de descarga automática de archivos desde Azure, crea un archivo `.env` en la raíz del proyecto con las credenciales necesarias:
+   ```
+   AZ_CLIENT_ID=tu_client_id
+   AZ_CLIENT_SECRET=tu_client_secret
+   AZ_TENANT_ID=tu_tenant_id
+   ```
+6. (Opcional) Para ejecutar los tests, instala las dependencias de desarrollo:
    ```bash
-   pip install -e .[qt]
+   pip install -e .[dev]
    ```
 
 ## Uso
@@ -34,8 +42,10 @@ Usa la herramienta `chaptersync` para generar gráficas o presentaciones.
 
 Ejemplo:
 ```bash
-chaptersync graphs --root ./files --rev --dr --m --tmd
+chaptersync graphs --root ./chapter_sync/files --rev --dr --m --tmd
 ```
+
+Nota: Si no especificas `--root`, se usará la ubicación por defecto `chapter_sync/files/`.
 Argumentos:
 - `--rev [ARCHIVO]` – gráficas de calidad.
 - `--dr [ARCHIVO]`  – gráfica de dedicación.
@@ -45,7 +55,7 @@ Argumentos:
 Las gráficas se muestran con Matplotlib.
 
 ### Crear una presentación
-Ejecuta `chaptersync ppt` para capturar todas las gráficas y añadirlas a `inputs/Template.pptx`. La presentación resultante se guarda en `outputs/`.
+Ejecuta `chaptersync ppt` para capturar todas las gráficas y añadirlas a `chapter_sync/inputs/Template.pptx`. La presentación resultante se guarda en `chapter_sync/outputs/`.
 
 ```bash
 chaptersync ppt
@@ -91,13 +101,19 @@ chapter_sync/
   └── outputs/         # Archivos PPTX resultantes (ignorados por git)
 ```
 
-El módulo `graphs.py` guarda en `cached_files/` los datos de Excel para acelerar ejecuciones futuras.
+El módulo `graphs.py` guarda en `chapter_sync/files/cached_files/` los datos de Excel para acelerar ejecuciones futuras.
 
 ## Tests
 
 Los tests se encuentran en el directorio `tests/`. Actualmente, `test_graphs_by_cl.py` verifica que la generación de gráficos para cada Chapter Leader se ejecute sin errores, asegurando que las funciones de graficado (`plot_calidad_pases`, `plot_dedicacion_tm`, `plot_niveles_madurez`, `plot_tiempo_desarrollo`) no fallen al procesar los datos.
 
-Para ejecutar los tests, asegúrate de tener las dependencias instaladas y luego usa `pytest`:
+Para ejecutar los tests, primero instala las dependencias de desarrollo:
+
+```bash
+pip install -e .[dev]
+```
+
+Luego ejecuta los tests con `pytest`:
 
 ```bash
 pytest
@@ -108,11 +124,13 @@ Los tests se configuraron para ejecutarse en un entorno sin interfaz gráfica (h
 ## Generar ejecutable
 
 El repositorio incluye `presentation_gui.spec` para crear una versión ejecutable
-de la GUI usando PyInstaller. La interfaz por defecto es PySide6 (Qt). Instala primero las dependencias:
+de la GUI usando PyInstaller. La interfaz por defecto es PySide6 (Qt). Instala primero las dependencias de build:
 
 ```bash
-pip install -e .[build,qt]
+pip install -e .[build]
 ```
+
+Nota: PySide6 ya está incluido en las dependencias principales, por lo que no es necesario instalarlo por separado.
 
 Luego ejecuta:
 
