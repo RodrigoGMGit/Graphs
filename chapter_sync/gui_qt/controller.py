@@ -7,16 +7,19 @@ import logging
 import os
 import re
 import sys
+import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Qt
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtWidgets import QDialog, QMessageBox, QProgressDialog
+from requests.exceptions import SSLError
 
 from chapter_sync import graphs, presentation
 
 from chapter_sync.gui_qt.widgets import MainWindow, ProfilePanel, WorkflowPanel
+from chapter_sync.gui_qt.ssl_dialog import SSLDiagnosticDialog, SSLConfigDialog
 
 
 # ╔══════════════════ CONSTANTES COMPARTIDAS ════════════════════════════════╗
@@ -63,6 +66,7 @@ def save_config(active_email: str, profiles: list[Profile]) -> None:
 class WorkerSignals(QObject):
     finished = Signal(bool, str, object, object)
     log = Signal(str, str)
+    ssl_error = Signal(str, str)  # error_message, error_traceback
 
     def __init__(self) -> None:
         super().__init__()
@@ -98,6 +102,13 @@ class PresentationWorker(QRunnable):
                 str(ppt.parent),
                 str(ppt),
             )
+        except SSLError as ssl_exc:
+            # Capturar error SSL específicamente
+            error_message = str(ssl_exc)
+            error_traceback = traceback.format_exc()
+            self.signals.log.emit(f"Error SSL detectado: {error_message}", "error")
+            self.signals.ssl_error.emit(error_message, error_traceback)
+            self.signals.finished.emit(False, f"Error SSL: {error_message}", None, None)
         except Exception as exc:  # noqa: BLE001
             self.signals.log.emit(f"Error durante la generación: {exc}", "error")
             self.signals.finished.emit(False, f"Error: {exc}", None, None)
@@ -150,6 +161,9 @@ class PresentationWorker(QRunnable):
                     logger.addHandler(gui_handler)
 
             check_and_download_if_needed(Path(self.data_dir))
+        except SSLError:
+            # Re-lanzar SSLError para que sea manejado por el handler en run()
+            raise
         except Exception as exc:  # noqa: BLE001
             self.signals.log.emit(
                 f"Error al verificar/descargar archivos: {exc}. Continuando con archivos existentes.",
@@ -193,6 +207,7 @@ class ChapterSyncController(QObject):
         self.profile_panel.cancel_requested.connect(self._on_cancel_edit)
 
         self.workflow_panel.generate_button.clicked.connect(self._on_generate)
+        self.workflow_panel.diagnostic_requested.connect(self._on_diagnostic_requested)
         self.workflow_panel.open_folder_button.clicked.connect(self._on_open_folder)
         self.workflow_panel.open_ppt_button.clicked.connect(self._on_open_ppt)
 
@@ -330,7 +345,25 @@ class ChapterSyncController(QObject):
         worker = PresentationWorker(name, email, data_dir)
         worker.signals.log.connect(self._handle_log)
         worker.signals.finished.connect(self._generation_finished)
+        worker.signals.ssl_error.connect(self._handle_ssl_error)
         self.thread_pool.start(worker)
+
+    def _on_diagnostic_requested(self) -> None:
+        """Abre el diálogo de diagnóstico SSL."""
+        dialog = SSLDiagnosticDialog(self.window)
+        dialog.exec()
+
+    def _handle_ssl_error(
+        self, error_message: str, error_traceback: str
+    ) -> None:
+        """Maneja errores SSL detectados durante la generación."""
+        dialog = SSLConfigDialog(
+            error_message, error_traceback, self.window
+        )
+        if dialog.exec() == QDialog.Accepted:
+            # Si el usuario aplicó la configuración, se puede intentar de nuevo
+            # pero por ahora solo mostramos el diálogo
+            pass
 
     def _handle_log(self, message: str, level: str) -> None:
         self.workflow_panel.append_log(message, level)

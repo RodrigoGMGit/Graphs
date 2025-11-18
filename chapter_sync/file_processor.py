@@ -496,9 +496,24 @@ def check_and_download_if_needed(files_dir: Path) -> None:
                     )
 
             except Exception as e:  # noqa: BLE001
-                error_msg = f"Error al descargar {file_type}: {type(e).__name__}: {e}"
+                # Si es un error SSL, propagarlo para que el controller lo maneje
+                from requests.exceptions import SSLError
+                if isinstance(e, SSLError):
+                    logger.error(
+                        f"Error SSL al descargar {file_type}: {e}",
+                        exc_info=True
+                    )
+                    # Propagar el error SSL para que el controller lo detecte
+                    raise
+
+                error_msg = (
+                    f"Error al descargar {file_type}: "
+                    f"{type(e).__name__}: {e}"
+                )
                 logger.error(error_msg, exc_info=True)
-                logger.info(f"Continuando con archivos existentes para {file_type}")
+                logger.info(
+                    f"Continuando con archivos existentes para {file_type}"
+                )
                 # Continue with next type, don't block execution
     finally:
         if is_executable and downloads_dir.exists():

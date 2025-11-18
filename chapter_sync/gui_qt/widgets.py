@@ -162,6 +162,7 @@ class WorkflowPanel(QFrame):
     generate_requested = Signal()
     open_folder_requested = Signal()
     open_ppt_requested = Signal()
+    diagnostic_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -176,6 +177,12 @@ class WorkflowPanel(QFrame):
 
         layout.addWidget(self._build_actions_group())
         layout.addWidget(self._build_log_group(), stretch=1)
+        
+        # Botón de diagnóstico en la esquina inferior izquierda
+        diagnostic_layout = QHBoxLayout()
+        diagnostic_layout.addWidget(self._build_diagnostic_button())
+        diagnostic_layout.addStretch()  # Empuja el botón a la izquierda
+        layout.addLayout(diagnostic_layout)
 
     def _build_actions_group(self) -> QGroupBox:
         group = QGroupBox("Acciones")
@@ -239,6 +246,13 @@ class WorkflowPanel(QFrame):
     def clear_logs(self) -> None:
         self.log_view.clear()
         self._log_rows = 0
+
+    def _build_diagnostic_button(self) -> QPushButton:
+        """Crea el botón de diagnóstico para la esquina inferior izquierda."""
+        self.diagnostic_button = QPushButton("Diagnóstico")
+        self.diagnostic_button.setMinimumHeight(35)
+        self.diagnostic_button.clicked.connect(self.diagnostic_requested)
+        return self.diagnostic_button
 
     def set_output_buttons_enabled(self, enabled: bool) -> None:
         self.open_folder_button.setEnabled(enabled)

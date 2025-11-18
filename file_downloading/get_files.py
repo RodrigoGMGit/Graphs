@@ -12,6 +12,20 @@ from typing import Iterable, List, Optional, Tuple
 import requests
 from dotenv import load_dotenv
 
+# Import SSL configuration (try/except for when running standalone)
+try:
+    from chapter_sync.ssl_config import (
+        get_ssl_verify_setting,
+        get_ssl_cert_path,
+    )
+except ImportError:
+    # Fallback if chapter_sync is not in path
+    def get_ssl_verify_setting():
+        return os.getenv('SSL_VERIFY', 'true').lower() != 'false'
+
+    def get_ssl_cert_path():
+        return os.getenv('SSL_CERT_FILE')
+
 # ==== ENV / CONFIG ====
 
 
@@ -267,8 +281,27 @@ def parse_date_from_name(name: str, pattern: str) -> Optional[datetime]:
 class GraphClient:
     def __init__(self, tenant_id: str, client_id: str, client_secret: str):
         self.session = requests.Session()
+        self._configure_ssl()
         tok = self._token(tenant_id, client_id, client_secret)
         self.h = {"Authorization": f"Bearer {tok}"}
+
+    def _configure_ssl(self):
+        """Configura la verificación SSL con certificado personalizado."""
+        # Obtener configuración de verificación SSL
+        ssl_verify = get_ssl_verify_setting()
+
+        # Obtener ruta al certificado personalizado
+        cert_path = get_ssl_cert_path()
+
+        if not ssl_verify:
+            # Desactivar verificación SSL (menos seguro)
+            self.session.verify = False
+        elif cert_path:
+            # Usar certificado personalizado
+            self.session.verify = cert_path
+        else:
+            # Verificación SSL normal (por defecto)
+            self.session.verify = True
 
     def _token(self, tenant: str, cid: str, secret: str) -> str:
         r = self.session.post(
