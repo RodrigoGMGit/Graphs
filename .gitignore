@@ -31,6 +31,9 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# Excepciones: archivos .spec que queremos versionar
+!presentation_gui.spec
+!presentation_gui_no_ssl.spec
 
 # Installer logs
 pip-log.txt
