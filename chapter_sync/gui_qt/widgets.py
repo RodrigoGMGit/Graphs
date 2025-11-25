@@ -28,7 +28,15 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ChapterSync")
+        # Detectar si estamos en modo de pruebas sin SSL
+        try:
+            from chapter_sync.ssl_config import is_ssl_verify_disabled_for_testing
+            if is_ssl_verify_disabled_for_testing():
+                self.setWindowTitle("ChapterSync (MODO PRUEBAS - SSL NO VERIFICADO, NO USAR EN PRD)")
+            else:
+                self.setWindowTitle("ChapterSync")
+        except ImportError:
+            self.setWindowTitle("ChapterSync")
         self.resize(1120, 760)
         self._build_ui()
 

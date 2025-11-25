@@ -6,6 +6,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Flag global para versión de pruebas sin verificación SSL
+# Este flag puede ser establecido en tiempo de build para crear una versión especial
+# que NO debe usarse en producción
+DISABLE_SSL_VERIFY_FOR_TESTING = os.getenv('DISABLE_SSL_VERIFY_FOR_TESTING', '').lower() == 'true'
+
 
 def get_ssl_config_path() -> Path:
     """Obtiene la ruta donde guardar la configuración SSL."""
@@ -36,10 +41,15 @@ def get_ssl_verify_setting() -> bool:
     """Obtiene si la verificación SSL está habilitada.
     
     Prioridad:
-    1. Variable de entorno SSL_VERIFY
-    2. Configuración guardada en archivo
-    3. True (por defecto, más seguro)
+    1. Flag DISABLE_SSL_VERIFY_FOR_TESTING (fuerza False si está activo)
+    2. Variable de entorno SSL_VERIFY
+    3. Configuración guardada en archivo
+    4. True (por defecto, más seguro)
     """
+    # Si el flag de testing está activo, forzar False (ignorar otras configuraciones)
+    if DISABLE_SSL_VERIFY_FOR_TESTING:
+        return False
+    
     env_setting = os.getenv('SSL_VERIFY')
     if env_setting is not None:
         return env_setting.lower() != 'false'
@@ -96,4 +106,13 @@ def set_ssl_cert_path(cert_path: Optional[str]) -> None:
     else:
         config.pop('ssl_cert_file', None)
     save_ssl_config(config)
+
+
+def is_ssl_verify_disabled_for_testing() -> bool:
+    """Indica si la verificación SSL está desactivada por el flag de testing.
+    
+    Esta función permite que otros módulos detecten si están ejecutando
+    en modo de pruebas sin verificación SSL.
+    """
+    return DISABLE_SSL_VERIFY_FOR_TESTING
 

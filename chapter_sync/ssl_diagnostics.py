@@ -93,9 +93,16 @@ def test_ssl_connection() -> tuple[bool, Optional[str], Optional[str]]:
     Returns:
         Tuple de (éxito, mensaje_error, traceback_error)
     """
+    # Si la verificación SSL está desactivada para testing, usar verify=False
+    try:
+        from chapter_sync.ssl_config import get_ssl_verify_setting
+        ssl_verify = get_ssl_verify_setting()
+    except ImportError:
+        ssl_verify = True
+    
     test_url = "https://login.microsoftonline.com"
     try:
-        requests.get(test_url, timeout=10, verify=True)
+        requests.get(test_url, timeout=10, verify=ssl_verify)
         return True, None, None
     except SSLError as e:
         error_msg = str(e)
@@ -488,7 +495,28 @@ def generate_report(result: SystemDiagnosticResult) -> str:
     report.append("-"*70)
     report.append("")
     
-    if result.has_ssl_error:
+    # Verificar si la verificación SSL está desactivada para testing
+    try:
+        from chapter_sync.ssl_config import is_ssl_verify_disabled_for_testing
+        ssl_disabled_for_testing = is_ssl_verify_disabled_for_testing()
+    except ImportError:
+        ssl_disabled_for_testing = False
+    
+    if ssl_disabled_for_testing:
+        report.append("⚠️  MODO DE PRUEBAS - VERIFICACIÓN SSL DESACTIVADA")
+        report.append("")
+        report.append("   Esta versión de la aplicación está ejecutándose con la verificación")
+        report.append("   de certificados SSL desactivada. Esto significa que:")
+        report.append("   • Las conexiones HTTPS NO validan la cadena de certificados")
+        report.append("   • El tráfico es vulnerable a ataques Man-in-the-Middle (MITM)")
+        report.append("   • Esta versión SOLO debe usarse para pruebas en entornos controlados")
+        report.append("   • NO debe usarse en producción")
+        report.append("")
+        report.append("   NOTA: El diagnóstico de certificados puede no representar el")
+        report.append("   comportamiento real de una versión productiva, ya que esta versión")
+        report.append("   salta la verificación SSL en todas las conexiones.")
+        report.append("")
+    elif result.has_ssl_error:
         report.append("❌ ERROR SSL DETECTADO")
         report.append(f"   Mensaje: {result.ssl_error_message}")
         if result.ssl_error_traceback:

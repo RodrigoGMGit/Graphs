@@ -35,6 +35,56 @@ Este sistema automatiza la generación de presentaciones (PPTX) con métricas de
    pip install -e .[dev]
    ```
 
+## Versión de Pruebas sin Verificación SSL
+
+**IMPORTANTE: Esta sección describe una versión especial SOLO para pruebas. NO usar en producción.**
+
+Existe una variante de la aplicación que desactiva completamente la verificación de certificados SSL. Esta versión está diseñada para permitir la validación funcional en entornos corporativos donde hay problemas de certificados SSL (por ejemplo, proxies corporativos que interceptan HTTPS).
+
+### Características de la versión sin SSL
+
+- **Desactiva completamente la verificación SSL**: Todas las conexiones HTTPS se realizan sin validar certificados
+- **Advertencias visibles**: El título de la ventana y los logs muestran claramente que es una versión de pruebas
+- **Nombre diferenciado**: El ejecutable se llama `ChapterSync_NoSSL_Test.exe` para evitar confusión
+
+### Riesgos de seguridad
+
+⚠️ **ADVERTENCIA CRÍTICA**: Esta versión es vulnerable a ataques Man-in-the-Middle (MITM) porque no valida certificados SSL. El tráfico puede ser interceptado y modificado por atacantes.
+
+**Solo debe usarse para:**
+- Validación funcional en entornos corporativos controlados
+- Pruebas cuando hay problemas de certificados SSL que impiden el funcionamiento normal
+- Diagnóstico temporal mientras se resuelve el problema de certificados
+
+**NO debe usarse para:**
+- Producción
+- Entornos con datos sensibles sin protección adicional
+- Cualquier uso donde la seguridad sea crítica
+
+### Cómo construir la versión sin SSL
+
+1. Ejecuta el script de build especial:
+   ```bash
+   build_no_ssl.bat
+   ```
+
+2. El ejecutable se generará en `dist\ChapterSync_NoSSL_Test.exe`
+
+3. Al ejecutarlo, verás:
+   - Título de ventana: "ChapterSync (MODO PRUEBAS - SSL NO VERIFICADO, NO USAR EN PRD)"
+   - Advertencias en los logs al iniciar descargas
+   - Mensaje destacado en el diagnóstico del sistema
+
+### Diferencias con la versión normal
+
+| Característica | Versión Normal | Versión Sin SSL (Pruebas) |
+|---------------|----------------|---------------------------|
+| Verificación SSL | Activada (por defecto) | Desactivada (forzada) |
+| Nombre ejecutable | `ChapterSync PPT Generator.exe` | `ChapterSync_NoSSL_Test.exe` |
+| Título ventana | "ChapterSync" | "ChapterSync (MODO PRUEBAS...)" |
+| Seguridad | Protegida contra MITM | Vulnerable a MITM |
+| Uso recomendado | Producción | Solo pruebas |
+
 ## Uso
 
 ### Línea de comandos

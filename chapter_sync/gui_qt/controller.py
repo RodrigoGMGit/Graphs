@@ -160,6 +160,18 @@ class PresentationWorker(QRunnable):
                 if gui_handler not in logger.handlers:
                     logger.addHandler(gui_handler)
 
+            # Advertencia si está en modo de pruebas sin SSL
+            try:
+                from chapter_sync.ssl_config import is_ssl_verify_disabled_for_testing
+                if is_ssl_verify_disabled_for_testing():
+                    self.signals.log.emit(
+                        "⚠️ ADVERTENCIA: Verificación SSL desactivada para esta ejecución (versión de pruebas). "
+                        "NO usar en producción.",
+                        "warn"
+                    )
+            except ImportError:
+                pass
+
             check_and_download_if_needed(Path(self.data_dir))
         except SSLError:
             # Re-lanzar SSLError para que sea manejado por el handler en run()

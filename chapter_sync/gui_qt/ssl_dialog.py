@@ -25,8 +25,35 @@ class DiagnosticWorker(QThread):
     finished = Signal(SystemDiagnosticResult)
     
     def run(self):
-        result = run_diagnostic()
-        self.finished.emit(result)
+        try:
+            result = run_diagnostic()
+            self.finished.emit(result)
+        except Exception as e:
+            # Si ocurre un error durante el diagnóstico, crear un resultado de error
+            # para que el diálogo no quede esperando indefinidamente
+            import traceback
+            from chapter_sync.ssl_diagnostics import SystemDiagnosticResult
+            
+            error_traceback = traceback.format_exc()
+            error_result = SystemDiagnosticResult(
+                write_permissions=[],
+                has_ssl_error=True,
+                ssl_error_message=f"Error inesperado durante el diagnóstico: {str(e)}",
+                ssl_error_traceback=error_traceback,
+                has_proxy=False,
+                proxy_details={},
+                connection_works_without_verify=False,
+                certificate_chain_info=None,
+                microsoft_endpoints=[],
+                has_credentials=False,
+                recommendation=f"Error al ejecutar diagnóstico: {str(e)}\n\n"
+                               f"Por favor, reporte este error al equipo de soporte.\n"
+                               f"Traceback completo:\n{error_traceback}",
+                severity="error",
+                credentials_valid=None,
+                credentials_error=None,
+            )
+            self.finished.emit(error_result)
 
 
 class SSLDiagnosticDialog(QDialog):
@@ -51,6 +78,20 @@ class SSLDiagnosticDialog(QDialog):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        
+        # Advertencia si está en modo de pruebas sin SSL
+        try:
+            from chapter_sync.ssl_config import is_ssl_verify_disabled_for_testing
+            if is_ssl_verify_disabled_for_testing():
+                warning = QLabel(
+                    "⚠️ ATENCIÓN: Esta versión ejecuta las conexiones sin verificación de certificados SSL. "
+                    "Solo para pruebas, NO usar en producción."
+                )
+                warning.setWordWrap(True)
+                warning.setStyleSheet("background-color: #8b4513; color: #ffffff; padding: 10px; border-radius: 5px; font-weight: bold;")
+                layout.addWidget(warning)
+        except ImportError:
+            pass
         
         # Descripción
         desc = QLabel(
